@@ -1,0 +1,68 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Node / frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+.vite/
+*.tsbuildinfo
+coverage/
+**/coverage/
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+*.pid.lock
+
+# Local databases, backups, and exports
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+backups/
+exports/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local agent/tool state
+.agents/
+.codex/

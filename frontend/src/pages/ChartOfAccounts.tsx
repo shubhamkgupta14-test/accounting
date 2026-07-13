@@ -1,0 +1,302 @@
+import { useState } from 'react'
+import { Plus, Search, Edit2, Trash2, X } from 'lucide-react'
+import { useLedgerData } from '../context/DataContext'
+import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
+import ExportMenu from '../components/ExportMenu'
+import TablePagination from '../components/TablePagination'
+import PageIntro from '../components/PageIntro'
+import { useAppSettings } from '../context/SettingsContext'
+
+type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
+
+interface AccountForm {
+  code: string
+  name: string
+  type: AccountType
+  group: string
+  opening_balance: number
+}
+
+const typeColors: Record<string, string> = {
+  Asset: 'badge-blue', Liability: 'badge-red', Equity: 'badge-amber',
+  Income: 'badge-green', Expense: 'badge-slate',
+}
+
+const defaultGroups: Record<AccountType, string> = {
+  Asset: 'Current Assets',
+  Liability: 'Current Liabilities',
+  Equity: 'Capital',
+  Income: 'Direct Income',
+  Expense: 'Indirect Expenses',
+}
+
+const nextAccountCode = (count: number) => `AC${String(count + 1).padStart(3, '0')}`
+
+export default function ChartOfAccounts() {
+  const { accounts, createAccount, updateAccount, deleteAccount } = useLedgerData()
+  const { currencySymbol } = useAppSettings()
+  const { canWrite, canManageUsers } = useAuth()
+  const { showToast } = useToast()
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('All')
+  const [groupFilter, setGroupFilter] = useState('All')
+  const [sortBy, setSortBy] = useState('code')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [form, setForm] = useState<AccountForm>({
+    code: nextAccountCode(accounts.length),
+    name: '',
+    type: 'Asset',
+    group: defaultGroups.Asset,
+    opening_balance: 0,
+  })
+
+  const openForm = () => {
+    setEditingId(null)
+    setForm({
+      code: nextAccountCode(accounts.length),
+      name: '',
+      type: 'Asset',
+      group: defaultGroups.Asset,
+      opening_balance: 0,
+    })
+    setError('')
+    setShowForm(true)
+  }
+
+  const openEditForm = (account: typeof accounts[number]) => {
+    if (!account.backendId) return
+    setEditingId(account.backendId)
+    setForm({
+      code: account.code,
+      name: account.name,
+      type: account.type,
+      group: account.group,
+      opening_balance: account.opening_balance,
+    })
+    setError('')
+    setShowForm(true)
+  }
+
+  const updateType = (type: AccountType) => {
+    setForm(current => ({ ...current, type, group: defaultGroups[type] }))
+  }
+
+  const saveAccount = async () => {
+    if (!form.code.trim() || !form.name.trim() || !form.group.trim()) {
+      const message = 'Account code, name, and group are required.'
+      setError(message)
+      showToast('error', message)
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const payload = {
+        code: form.code.trim(),
+        name: form.name.trim(),
+        type: form.type,
+        group: form.group.trim(),
+        opening_balance: Number(form.opening_balance) || 0,
+        is_active: true,
+      }
+      if (editingId) await updateAccount(editingId, payload)
+      else await createAccount(payload)
+      setShowForm(false)
+      showToast('success', editingId ? 'Account updated successfully.' : 'Account created successfully.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : editingId ? 'Unable to update account.' : 'Unable to create account.'
+      setError(message)
+      showToast('error', message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeAccount = async (account: typeof accounts[number]) => {
+    if (!account.backendId || !window.confirm(`Delete ledger account "${account.name}"?`)) return
+    try {
+      await deleteAccount(account.backendId)
+      showToast('success', 'Account deleted successfully.')
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to delete account.')
+    }
+  }
+
+  const filtered = accounts.filter(a =>
+    (typeFilter === 'All' || a.type === typeFilter) &&
+    (groupFilter === 'All' || a.group === groupFilter) &&
+    (a.name.toLowerCase().includes(search.toLowerCase()) ||
+      a.id.toLowerCase().includes(search.toLowerCase()) ||
+      a.group.toLowerCase().includes(search.toLowerCase()))
+  ).sort((a, b) => sortBy === 'name' ? a.name.localeCompare(b.name) : a.code.localeCompare(b.code))
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  const summary = ['Asset', 'Liability', 'Equity', 'Income', 'Expense'].map(type => ({
+    type, count: accounts.filter(a => a.type === type).length
+  }))
+
+  return (
+    <div>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <PageIntro id="chart-of-accounts" />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <ExportMenu fullReport title="Ledger Accounts" rows={filtered.map(row => ({
+            code: row.id,
+            name: row.name,
+            type: row.type,
+            group: row.group,
+            balance: row.balance || 0,
+          }))} />
+          {canWrite && (
+            <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={openForm}>
+              <Plus size={14} /> Add Ledger Account
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="card" style={{ marginBottom: 20, padding: '20px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{editingId ? 'Edit Ledger Account' : 'Add Ledger Account'}</h3>
+            <button className="btn btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowForm(false)}>
+              <X size={16} />
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1.5fr 1fr', gap: 14 }}>
+            <div>
+              <label className="form-label required">A/c Code</label>
+              <input className="input" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
+            </div>
+            <div>
+              <label className="form-label required">Ledger Account Name</label>
+              <input className="input" placeholder="Cash, Bank, Sales, Rent..." value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="form-label required">Type</label>
+              <select className="select" style={{ width: '100%' }} value={form.type} onChange={e => updateType(e.target.value as AccountType)}>
+                <option>Asset</option>
+                <option>Liability</option>
+                <option>Equity</option>
+                <option>Income</option>
+                <option>Expense</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label required">Group</label>
+              <input className="input" value={form.group} onChange={e => setForm(f => ({ ...f, group: e.target.value }))} />
+            </div>
+            <div>
+              <label className="form-label">Opening Balance</label>
+              <input className="input mono" type="number" value={form.opening_balance || ''} onChange={e => setForm(f => ({ ...f, opening_balance: Number(e.target.value) }))} />
+            </div>
+          </div>
+          {error && <div style={{ marginTop: 12, color: '#B91C1C', fontSize: 12.5 }}>{error}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+            <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
+            <button className="btn btn-primary" disabled={saving} onClick={saveAccount}>{saving ? 'Saving...' : editingId ? 'Update Ledger Account' : 'Save Ledger Account'}</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        {[{ type: 'All', count: accounts.length }, ...summary].map(s => (
+          <button key={s.type} className="btn"
+            style={{
+              background: typeFilter === s.type ? '#2563EB' : 'white',
+              color: typeFilter === s.type ? 'white' : '#475569',
+              border: `1px solid ${typeFilter === s.type ? '#2563EB' : '#E2E8F0'}`,
+              fontSize: 13, fontWeight: typeFilter === s.type ? 600 : 400,
+              padding: '6px 14px', gap: 8
+            }}
+            onClick={() => { setTypeFilter(s.type); setPage(1) }}
+          >
+            {s.type}
+            <span style={{
+              background: typeFilter === s.type ? 'rgba(255,255,255,0.25)' : '#F1F5F9',
+              color: typeFilter === s.type ? 'white' : '#64748B',
+              padding: '1px 7px', borderRadius: 20, fontSize: 11.5, fontWeight: 700
+            }}>{s.count}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="card">
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', gap: 10 }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+            <input className="input" style={{ paddingLeft: 30, height: 34, fontSize: 13 }}
+              placeholder="Search by name, code, group..." value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+          </div>
+          <select className="select" style={{ fontSize: 13 }} value={groupFilter} onChange={e => { setGroupFilter(e.target.value); setPage(1) }}>
+            <option value="All">All Groups</option>
+            {[...new Set(accounts.map(a => a.group))].map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+          <select className="select" style={{ fontSize: 13 }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+            <option value="code">Sort: Code</option><option value="name">Sort: Name</option>
+          </select>
+          <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#64748B', display: 'flex', alignItems: 'center' }}>
+            {filtered.length} ledger accounts
+          </span>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>A/c Code</th>
+                <th>Ledger Account Name</th>
+                <th>Type</th>
+                <th>Group</th>
+                <th className="num">Balance ({currencySymbol})</th>
+                {(canWrite || canManageUsers) && <th style={{ textAlign: 'center' }}>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {paged.map(a => (
+                <tr key={a.id}>
+                  <td><span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{a.id}</span></td>
+                  <td style={{ fontWeight: 500 }}>{a.name}</td>
+                  <td><span className={`badge ${typeColors[a.type] || 'badge-slate'}`}>{a.type}</span></td>
+                  <td><span className="group-text">{a.group}</span></td>
+                  <td className="num" style={{ fontWeight: 600 }}>{(a.balance || 0).toLocaleString('en-IN')}</td>
+                  {(canWrite || canManageUsers) && (
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                        {canWrite && (
+                          <button className="btn btn-ghost" style={{ padding: '4px 7px', color: '#3B82F6' }} title="Edit" onClick={() => openEditForm(a)}>
+                            <Edit2 size={13} />
+                          </button>
+                        )}
+                        {canManageUsers && (
+                          <button className="btn btn-ghost" style={{ padding: '4px 7px', color: '#EF4444' }} title="Delete" onClick={() => void removeAccount(a)}>
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={canWrite || canManageUsers ? 6 : 5}>
+                    <div className="empty-state" style={{ padding: '36px 20px' }}>
+                      <p>No ledger accounts yet. Add ledger accounts before creating journal entries.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <TablePagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
+      </div>
+    </div>
+  )
+}
