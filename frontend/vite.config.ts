@@ -6,6 +6,9 @@ import path from "node:path";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  const configuredApiUrl = env.VITE_API_BASE_URL?.trim();
+  const proxyTarget = env.VITE_API_PROXY_TARGET?.trim()
+    || (configuredApiUrl?.startsWith("http") ? new URL(configuredApiUrl).origin : "http://127.0.0.1:8000");
 
   return {
     plugins: [react(), tailwindcss()],
@@ -19,11 +22,16 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.PORT || process.env.PORT || "5173", 10),
       proxy: {
         "/api": {
-          target: env.VITE_API_BASE_URL
-            ? env.VITE_API_BASE_URL.replace(/\/api$/, "")
-            : "http://127.0.0.1:8000",
+          target: proxyTarget,
           changeOrigin: true,
           secure: false,
+          configure(proxy) {
+            // Keep cookie authentication same-origin in the browser while the
+            // development proxy forwards requests to any configured API port.
+            proxy.on("proxyReq", proxyRequest => {
+              proxyRequest.setHeader("origin", new URL(proxyTarget).origin);
+            });
+          },
         },
       },
     },

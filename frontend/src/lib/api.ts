@@ -1,6 +1,7 @@
-const API_BASE_URL = import.meta.env.DEV
-  ? "/api"
-  : import.meta.env.VITE_API_BASE_URL || "/api";
+// Prefer a same-origin API path so HTTP-only authentication cookies continue
+// working when hosts, ports, or Vite modes change. An absolute URL remains an
+// explicit deployment option for installations configured for cross-site auth.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || "/api";
 
 export type UserRole = "superadmin" | "admin" | "user";
 export interface PageContentResponse { pages: Record<string, { title: string; description: string }>; footer: string }
@@ -207,6 +208,7 @@ function formatApiError(detail: unknown) {
 }
 
 export const api = {
+  loginContent: () => request<PageContentResponse>("/content/login"),
   content: () => request<PageContentResponse>("/content"),
   login: (email: string, password: string) =>
     request<{ user: AuthUser }>("/auth/login", {

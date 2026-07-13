@@ -4,9 +4,11 @@
   "scripts": {
     "dev": "npm run dev:b",
     "dev:f": "npm run dev --prefix frontend",
-    "dev:b": ".\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000",
+    "dev:b": ".\\.venv\\Scripts\\python.exe -m dotenv -f backend\\.env run -- .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0",
     "build:dev": "npm run build --prefix frontend",
     "seed": ".\\.venv\\Scripts\\python.exe backend\\scripts\\seed.py",
+    "seed:dev": ".\\.venv\\Scripts\\python.exe backend\\scripts\\seed.py --env dev",
+    "seed:stage": ".\\.venv\\Scripts\\python.exe backend\\scripts\\seed.py --env stage",
     "seed:vouchers": ".\\.venv\\Scripts\\python.exe backend\\scripts\\seed_accounting_vouchers.py",
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": ".\\.venv\\Scripts\\python.exe -m pytest -c backend\\pytest.ini backend\\tests",
@@ -14,7 +16,7 @@
     "test:security": "npm audit --prefix frontend --omit=dev --audit-level=moderate && .\\.venv\\Scripts\\python.exe -m pip_audit -r backend\\requirements.txt --progress-spinner off",
     "stage": "npm run stage:b",
     "stage:f": "npm run dev --prefix frontend -- --mode stage",
-    "stage:b": ".\\.venv\\Scripts\\python.exe -m dotenv -f backend\\.env.stage run -- .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 9090",
+    "stage:b": ".\\.venv\\Scripts\\python.exe -m dotenv -f backend\\.env.stage run -- .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --app-dir backend --host 0.0.0.0",
     "build:stage": "npm run build --prefix frontend -- --mode stage"
   }
 }

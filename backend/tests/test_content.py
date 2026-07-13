@@ -1,4 +1,11 @@
-def test_content_is_public(client):
+def test_login_content_is_public_and_full_content_is_protected(client, login):
+    response = client.get("/api/content/login")
+    assert response.status_code == 200
+    assert response.json()["pages"]["login"]["title"]
+    assert set(response.json()["pages"]) == {"login"}
+
+    assert client.get("/api/content").status_code == 401
+    login("user")
     response = client.get("/api/content")
     assert response.status_code == 200
     assert response.json()["pages"]["dashboard"]["title"]

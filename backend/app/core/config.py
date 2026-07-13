@@ -8,6 +8,7 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 class Settings(BaseSettings):
     app_name: str = "Accounting"
     env: str = "local"
+    uvicorn_port: int = 8000
     mongodb_uri: str = "mongodb://127.0.0.1:27017"
     mongodb_db: str = "accounting"
     jwt_secret: str = "accounting-local-dev-secret"

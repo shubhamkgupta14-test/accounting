@@ -1,7 +1,9 @@
 """Seed the 2026 50-voucher accounting scenario through the HTTP API only.
 
-JV-001 is intentionally not defined here. The script creates or skips JV-002
-through JV-050 and is safe to run repeatedly.
+The script creates or skips JV-001 through JV-050 and is safe to run
+repeatedly. Existing vouchers, including JV-001, are never recreated.
+
+RUN -> npm run seed:vouchers -- --base-url http://127.0.0.1:8000 --email superadmin@accountingapp.com --password password123
 """
 
 from __future__ import annotations
@@ -33,32 +35,59 @@ EXPECTED = {
     "balance_sheet": 647_500,
 }
 
+TYPE_CODE_PREFIX = {"Asset": "A", "Liability": "L",
+                    "Equity": "E", "Income": "I", "Expense": "X"}
+
+GROUP_CODE_PREFIX = {
+    "Cash": "CH",
+    "Bank": "BK",
+    "Current Assets": "CA",
+    "Fixed Assets": "FA",
+    "Non-current Assets": "NCA",
+    "Current Liabilities": "CL",
+    "Tax Liabilities": "TL",
+    "Long-term Liabilities": "LL",
+    "Capital": "CP",
+    "Direct Income": "DI",
+    "Indirect Income": "II",
+    "Direct Expenses": "DE",
+    "Indirect Expenses": "IE",
+}
+
+
+def next_account_code(account_type: str, group: str, used_codes: set[str]) -> str:
+    prefix = f"{TYPE_CODE_PREFIX[account_type]}-{GROUP_CODE_PREFIX[group]}-"
+    sequence = 1
+    while f"{prefix}{sequence:03d}" in used_codes:
+        sequence += 1
+    return f"{prefix}{sequence:03d}"
+
 
 ACCOUNTS = [
-    ("Cash", "Asset", "Current Assets"),
-    ("Bank", "Asset", "Bank"),
+    ("Cash", "Asset", "Cash"),
+    ("Bank Account", "Asset", "Bank"),
     ("Closing Stock", "Asset", "Current Assets"),
-    ("Ravi", "Asset", "Sundry Debtors"),
-    ("Neha", "Asset", "Sundry Debtors"),
-    ("Amit", "Asset", "Sundry Debtors"),
+    ("Ravi", "Asset", "Current Assets"),
+    ("Neha", "Asset", "Current Assets"),
+    ("Amit", "Asset", "Current Assets"),
     ("Capital", "Equity", "Capital"),
-    ("Aman Traders", "Liability", "Sundry Creditors"),
-    ("Bharat Suppliers", "Liability", "Sundry Creditors"),
-    ("City Wholesalers", "Liability", "Sundry Creditors"),
-    ("Deepak Traders", "Liability", "Sundry Creditors"),
+    ("Aman Traders", "Liability", "Current Liabilities"),
+    ("Bharat Suppliers", "Liability", "Current Liabilities"),
+    ("City Wholesalers", "Liability", "Current Liabilities"),
+    ("Deepak Traders", "Liability", "Current Liabilities"),
     ("Sales", "Income", "Direct Income"),
     ("Commission Income", "Income", "Indirect Income"),
     ("Interest Income", "Income", "Indirect Income"),
     ("Discount Received", "Income", "Indirect Income"),
     ("Purchases", "Expense", "Direct Expenses"),
-    ("Purchase Returns", "Expense", "Direct Expenses"),
-    ("Sales Returns", "Income", "Direct Income"),
+    ("Purchase Returns", "Income", "Direct Income"),
+    ("Sales Returns", "Expense", "Direct Expenses"),
     ("Wages", "Expense", "Direct Expenses"),
-    ("Carriage Inward", "Expense", "Direct Expenses"),
-    ("Rent", "Expense", "Indirect Expenses"),
+    ("Freight / Carriage Inwards", "Expense", "Direct Expenses"),
+    ("Rent Expense", "Expense", "Indirect Expenses"),
     ("Salary Expense", "Expense", "Indirect Expenses"),
     ("Electricity Expense", "Expense", "Indirect Expenses"),
-    ("Stationery Expense", "Expense", "Indirect Expenses"),
+    ("Printing & Stationery", "Expense", "Indirect Expenses"),
     ("Advertisement Expense", "Expense", "Indirect Expenses"),
     ("Insurance Expense", "Expense", "Indirect Expenses"),
     ("Discount Allowed", "Expense", "Indirect Expenses"),
@@ -72,61 +101,112 @@ def lines(debits: list[tuple[str, float]], credits: list[tuple[str, float]]) -> 
 
 
 RAW_VOUCHERS = [
-    ("2026-04-02", "Being goods purchased for cash.", [("Purchases", 50_000)], [("Cash", 50_000)]),
-    ("2026-04-04", "Being goods purchased for cash.", [("Purchases", 30_000)], [("Cash", 30_000)]),
-    ("2026-04-06", "Being goods purchased on credit from Aman Traders.", [("Purchases", 40_000)], [("Aman Traders", 40_000)]),
-    ("2026-04-08", "Being goods purchased on credit from Aman Traders.", [("Purchases", 20_000)], [("Aman Traders", 20_000)]),
-    ("2026-04-10", "Being goods purchased on credit from Bharat Suppliers.", [("Purchases", 30_000)], [("Bharat Suppliers", 30_000)]),
-    ("2026-04-12", "Being goods purchased on credit from Bharat Suppliers.", [("Purchases", 25_000)], [("Bharat Suppliers", 25_000)]),
-    ("2026-04-14", "Being goods sold for cash.", [("Cash", 40_000)], [("Sales", 40_000)]),
-    ("2026-04-16", "Being goods sold for cash.", [("Cash", 30_000)], [("Sales", 30_000)]),
-    ("2026-04-18", "Being goods sold on credit to Ravi.", [("Ravi", 50_000)], [("Sales", 50_000)]),
-    ("2026-04-20", "Being goods sold on credit to Ravi.", [("Ravi", 30_000)], [("Sales", 30_000)]),
-    ("2026-04-22", "Being cash deposited into bank.", [("Bank", 60_000)], [("Cash", 60_000)]),
-    ("2026-04-24", "Being cash deposited into bank.", [("Bank", 40_000)], [("Cash", 40_000)]),
-    ("2026-04-26", "Being goods purchased on credit from City Wholesalers.", [("Purchases", 50_000)], [("City Wholesalers", 50_000)]),
-    ("2026-04-28", "Being goods purchased for cash.", [("Purchases", 45_000)], [("Cash", 45_000)]),
-    ("2026-04-30", "Being goods sold on credit to Neha.", [("Neha", 40_000)], [("Sales", 40_000)]),
-    ("2026-05-02", "Being goods sold on credit to Neha.", [("Neha", 30_000)], [("Sales", 30_000)]),
-    ("2026-05-04", "Being wages paid in cash.", [("Wages", 15_000)], [("Cash", 15_000)]),
-    ("2026-05-06", "Being carriage inward paid in cash.", [("Carriage Inward", 3_000)], [("Cash", 3_000)]),
-    ("2026-05-08", "Being goods sold for cash.", [("Cash", 60_000)], [("Sales", 60_000)]),
-    ("2026-05-10", "Being goods sold through bank.", [("Bank", 50_000)], [("Sales", 50_000)]),
-    ("2026-05-12", "Being goods purchased on credit from Deepak Traders.", [("Purchases", 25_000)], [("Deepak Traders", 25_000)]),
-    ("2026-05-14", "Being goods sold on credit to Amit.", [("Amit", 60_000)], [("Sales", 60_000)]),
-    ("2026-05-16", "Being goods sold for cash.", [("Cash", 40_000)], [("Sales", 40_000)]),
-    ("2026-05-18", "Being goods returned by Ravi.", [("Sales Returns", 10_000)], [("Ravi", 10_000)]),
-    ("2026-05-20", "Being goods returned to Aman Traders.", [("Aman Traders", 8_000)], [("Purchase Returns", 8_000)]),
-    ("2026-05-22", "Being goods returned to Bharat Suppliers.", [("Bharat Suppliers", 10_000)], [("Purchase Returns", 10_000)]),
-    ("2026-05-24", "Being amount received from Ravi in full settlement and discount allowed.", [("Bank", 68_000), ("Discount Allowed", 2_000)], [("Ravi", 70_000)]),
-    ("2026-05-28", "Being amount received from Neha by cheque in full settlement.", [("Bank", 70_000)], [("Neha", 70_000)]),
-    ("2026-05-30", "Being cheque received from Amit and deposited into bank.", [("Bank", 60_000)], [("Amit", 60_000)]),
-    ("2026-06-01", "Being Amit's cheque dishonoured by bank.", [("Amit", 60_000)], [("Bank", 60_000)]),
-    ("2026-06-03", "Being cash received from Amit after cheque dishonour.", [("Cash", 60_000)], [("Amit", 60_000)]),
-    ("2026-06-05", "Being Aman Traders paid by bank in full settlement and discount received.", [("Aman Traders", 52_000)], [("Bank", 50_000), ("Discount Received", 2_000)]),
-    ("2026-06-07", "Being Bharat Suppliers paid by bank in full settlement and discount received.", [("Bharat Suppliers", 45_000)], [("Bank", 44_500), ("Discount Received", 500)]),
-    ("2026-06-09", "Being City Wholesalers paid in cash.", [("City Wholesalers", 50_000)], [("Cash", 50_000)]),
-    ("2026-06-11", "Being Deepak Traders paid by bank.", [("Deepak Traders", 25_000)], [("Bank", 25_000)]),
-    ("2026-06-13", "Being cash withdrawn for personal use.", [("Drawings", 25_000)], [("Cash", 25_000)]),
-    ("2026-06-15", "Being goods withdrawn by proprietor for personal use.", [("Drawings", 4_000)], [("Purchases", 4_000)]),
-    ("2026-06-17", "Being office rent paid in cash.", [("Rent", 5_000)], [("Cash", 5_000)]),
-    ("2026-06-19", "Being office rent paid in cash.", [("Rent", 5_000)], [("Cash", 5_000)]),
-    ("2026-06-21", "Being salary paid in cash.", [("Salary Expense", 6_000)], [("Cash", 6_000)]),
-    ("2026-06-23", "Being salary paid in cash.", [("Salary Expense", 6_000)], [("Cash", 6_000)]),
-    ("2026-06-25", "Being electricity charges paid in cash.", [("Electricity Expense", 4_000)], [("Cash", 4_000)]),
-    ("2026-06-27", "Being stationery purchased for cash.", [("Stationery Expense", 2_000)], [("Cash", 2_000)]),
-    ("2026-06-29", "Being advertisement expense paid in cash.", [("Advertisement Expense", 3_000)], [("Cash", 3_000)]),
-    ("2026-07-01", "Being insurance premium paid in cash.", [("Insurance Expense", 3_000)], [("Cash", 3_000)]),
-    ("2026-07-03", "Being commission received through bank.", [("Bank", 8_000)], [("Commission Income", 8_000)]),
-    ("2026-07-05", "Being interest received through bank.", [("Bank", 3_000)], [("Interest Income", 3_000)]),
-    ("2026-07-08", "Being additional cash deposited into bank.", [("Bank", 24_000)], [("Cash", 24_000)]),
-    ("2026-07-11", "Being closing stock valued and recorded.", [("Closing Stock", 90_000)], [("Purchases", 90_000)]),
+    ("2026-04-01", "Being capital introduced in cash.",
+     [("Cash", 500_000)], [("Capital", 500_000)]),
+    ("2026-04-02", "Being goods purchased for cash.",
+     [("Purchases", 50_000)], [("Cash", 50_000)]),
+    ("2026-04-04", "Being goods purchased for cash.",
+     [("Purchases", 30_000)], [("Cash", 30_000)]),
+    ("2026-04-06", "Being goods purchased on credit from Aman Traders.",
+     [("Purchases", 40_000)], [("Aman Traders", 40_000)]),
+    ("2026-04-08", "Being goods purchased on credit from Aman Traders.",
+     [("Purchases", 20_000)], [("Aman Traders", 20_000)]),
+    ("2026-04-10", "Being goods purchased on credit from Bharat Suppliers.",
+     [("Purchases", 30_000)], [("Bharat Suppliers", 30_000)]),
+    ("2026-04-12", "Being goods purchased on credit from Bharat Suppliers.",
+     [("Purchases", 25_000)], [("Bharat Suppliers", 25_000)]),
+    ("2026-04-14", "Being goods sold for cash.",
+     [("Cash", 40_000)], [("Sales", 40_000)]),
+    ("2026-04-16", "Being goods sold for cash.",
+     [("Cash", 30_000)], [("Sales", 30_000)]),
+    ("2026-04-18", "Being goods sold on credit to Ravi.",
+     [("Ravi", 50_000)], [("Sales", 50_000)]),
+    ("2026-04-20", "Being goods sold on credit to Ravi.",
+     [("Ravi", 30_000)], [("Sales", 30_000)]),
+    ("2026-04-22", "Being cash deposited into bank.",
+     [("Bank Account", 60_000)], [("Cash", 60_000)]),
+    ("2026-04-24", "Being cash deposited into bank.",
+     [("Bank Account", 40_000)], [("Cash", 40_000)]),
+    ("2026-04-26", "Being goods purchased on credit from City Wholesalers.",
+     [("Purchases", 50_000)], [("City Wholesalers", 50_000)]),
+    ("2026-04-28", "Being goods purchased for cash.",
+     [("Purchases", 45_000)], [("Cash", 45_000)]),
+    ("2026-04-30", "Being goods sold on credit to Neha.",
+     [("Neha", 40_000)], [("Sales", 40_000)]),
+    ("2026-05-02", "Being goods sold on credit to Neha.",
+     [("Neha", 30_000)], [("Sales", 30_000)]),
+    ("2026-05-04", "Being wages paid in cash.",
+     [("Wages", 15_000)], [("Cash", 15_000)]),
+    ("2026-05-06", "Being carriage inward paid in cash.",
+     [("Freight / Carriage Inwards", 3_000)], [("Cash", 3_000)]),
+    ("2026-05-08", "Being goods sold for cash.",
+     [("Cash", 60_000)], [("Sales", 60_000)]),
+    ("2026-05-10", "Being goods sold through bank.",
+     [("Bank Account", 50_000)], [("Sales", 50_000)]),
+    ("2026-05-12", "Being goods purchased on credit from Deepak Traders.",
+     [("Purchases", 25_000)], [("Deepak Traders", 25_000)]),
+    ("2026-05-14", "Being goods sold on credit to Amit.",
+     [("Amit", 60_000)], [("Sales", 60_000)]),
+    ("2026-05-16", "Being goods sold for cash.",
+     [("Cash", 40_000)], [("Sales", 40_000)]),
+    ("2026-05-18", "Being goods returned by Ravi.",
+     [("Sales Returns", 10_000)], [("Ravi", 10_000)]),
+    ("2026-05-20", "Being goods returned to Aman Traders.",
+     [("Aman Traders", 8_000)], [("Purchase Returns", 8_000)]),
+    ("2026-05-22", "Being goods returned to Bharat Suppliers.",
+     [("Bharat Suppliers", 10_000)], [("Purchase Returns", 10_000)]),
+    ("2026-05-24", "Being amount received from Ravi in full settlement and discount allowed.",
+     [("Bank Account", 68_000), ("Discount Allowed", 2_000)], [("Ravi", 70_000)]),
+    ("2026-05-28", "Being amount received from Neha by cheque in full settlement.",
+     [("Bank Account", 70_000)], [("Neha", 70_000)]),
+    ("2026-05-30", "Being cheque received from Amit and deposited into bank.",
+     [("Bank Account", 60_000)], [("Amit", 60_000)]),
+    ("2026-06-01", "Being Amit's cheque dishonoured by bank.",
+     [("Amit", 60_000)], [("Bank Account", 60_000)]),
+    ("2026-06-03", "Being cash received from Amit after cheque dishonour.",
+     [("Cash", 60_000)], [("Amit", 60_000)]),
+    ("2026-06-05", "Being Aman Traders paid by bank in full settlement and discount received.",
+     [("Aman Traders", 52_000)], [("Bank Account", 50_000), ("Discount Received", 2_000)]),
+    ("2026-06-07", "Being Bharat Suppliers paid by bank in full settlement and discount received.",
+     [("Bharat Suppliers", 45_000)], [("Bank Account", 44_500), ("Discount Received", 500)]),
+    ("2026-06-09", "Being City Wholesalers paid in cash.",
+     [("City Wholesalers", 50_000)], [("Cash", 50_000)]),
+    ("2026-06-11", "Being Deepak Traders paid by bank.",
+     [("Deepak Traders", 25_000)], [("Bank Account", 25_000)]),
+    ("2026-06-13", "Being cash withdrawn for personal use.",
+     [("Drawings", 25_000)], [("Cash", 25_000)]),
+    ("2026-06-15", "Being goods withdrawn by proprietor for personal use.",
+     [("Drawings", 4_000)], [("Purchases", 4_000)]),
+    ("2026-06-17", "Being office rent paid in cash.",
+     [("Rent Expense", 5_000)], [("Cash", 5_000)]),
+    ("2026-06-19", "Being office rent paid in cash.",
+     [("Rent Expense", 5_000)], [("Cash", 5_000)]),
+    ("2026-06-21", "Being salary paid in cash.",
+     [("Salary Expense", 6_000)], [("Cash", 6_000)]),
+    ("2026-06-23", "Being salary paid in cash.",
+     [("Salary Expense", 6_000)], [("Cash", 6_000)]),
+    ("2026-06-25", "Being electricity charges paid in cash.",
+     [("Electricity Expense", 4_000)], [("Cash", 4_000)]),
+    ("2026-06-27", "Being stationery purchased for cash.",
+     [("Printing & Stationery", 2_000)], [("Cash", 2_000)]),
+    ("2026-06-29", "Being advertisement expense paid in cash.",
+     [("Advertisement Expense", 3_000)], [("Cash", 3_000)]),
+    ("2026-07-01", "Being insurance premium paid in cash.",
+     [("Insurance Expense", 3_000)], [("Cash", 3_000)]),
+    ("2026-07-03", "Being commission received through bank.",
+     [("Bank Account", 8_000)], [("Commission Income", 8_000)]),
+    ("2026-07-05", "Being interest received through bank.",
+     [("Bank Account", 3_000)], [("Interest Income", 3_000)]),
+    ("2026-07-08", "Being additional cash deposited into bank.",
+     [("Bank Account", 24_000)], [("Cash", 24_000)]),
+    ("2026-07-11", "Being closing stock valued and recorded.",
+     [("Closing Stock", 90_000)], [("Purchases", 90_000)]),
 ]
 
 VOUCHERS = [
     {"date": date, "voucher_no": f"JV-{number:03d}", "narration": narration,
      "entries": lines(debits, credits), "status": "Posted"}
-    for number, (date, narration, debits, credits) in enumerate(RAW_VOUCHERS, start=2)
+    for number, (date, narration, debits, credits) in enumerate(RAW_VOUCHERS, start=1)
 ]
 
 
@@ -141,7 +221,8 @@ class ApiClient:
             self.base_url + path,
             data=data,
             method=method,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            headers={"Accept": "application/json",
+                     "Content-Type": "application/json"},
         )
         try:
             with self.opener.open(request, timeout=10) as response:
@@ -153,19 +234,22 @@ class ApiClient:
                 detail = json.loads(body)
             except json.JSONDecodeError:
                 detail = body
-            raise RuntimeError(f"HTTP {exc.code} {method} {path}: {detail}") from exc
+            raise RuntimeError(
+                f"HTTP {exc.code} {method} {path}: {detail}") from exc
         except URLError as exc:
-            raise RuntimeError(f"Cannot reach {self.base_url}: {exc.reason}") from exc
+            raise RuntimeError(
+                f"Cannot reach {self.base_url}: {exc.reason}") from exc
 
 
 def validate_plan() -> None:
-    if len(VOUCHERS) != 49 or VOUCHERS[0]["voucher_no"] != "JV-002" or VOUCHERS[-1]["voucher_no"] != "JV-050":
-        raise ValueError("The plan must contain exactly JV-002 through JV-050")
+    if len(VOUCHERS) != 50 or VOUCHERS[0]["voucher_no"] != "JV-001" or VOUCHERS[-1]["voucher_no"] != "JV-050":
+        raise ValueError("The plan must contain exactly JV-001 through JV-050")
     for voucher in VOUCHERS:
         debit = round(sum(line["debit"] for line in voucher["entries"]), 2)
         credit = round(sum(line["credit"] for line in voucher["entries"]), 2)
         if debit <= 0 or debit != credit:
-            raise ValueError(f"Unbalanced {voucher['voucher_no']}: debit={debit}, credit={credit}")
+            raise ValueError(
+                f"Unbalanced {voucher['voucher_no']}: debit={debit}, credit={credit}")
 
 
 def movement(journals: list[dict], account: str, side: str) -> float:
@@ -175,7 +259,8 @@ def movement(journals: list[dict], account: str, side: str) -> float:
 def verify(api: ApiClient) -> bool:
     _, accounts = api.request("GET", "/api/accounts")
     _, journals = api.request("GET", "/api/journal-entries")
-    balances = {account["name"]: float(account.get("balance", 0)) for account in accounts}
+    balances = {account["name"]: float(
+        account.get("balance", 0)) for account in accounts}
 
     gross_sales = movement(journals, "Sales", "credit")
     sales_returns = movement(journals, "Sales Returns", "debit")
@@ -188,18 +273,23 @@ def verify(api: ApiClient) -> bool:
     )
     net_sales = gross_sales - sales_returns
     net_purchases = gross_purchases - purchase_returns - goods_withdrawn
-    direct_expenses = sum(balances.get(name, 0) for name in ("Purchases", "Purchase Returns", "Wages", "Carriage Inward"))
-    direct_income = balances.get("Sales", 0) + balances.get("Sales Returns", 0)
+    direct_expenses = sum(balances.get(name, 0) for name in (
+        "Purchases", "Sales Returns", "Wages", "Freight / Carriage Inwards"))
+    direct_income = balances.get("Sales", 0) + \
+        balances.get("Purchase Returns", 0)
     gross_profit = direct_income - direct_expenses
-    income = sum(account.get("balance", 0) for account in accounts if account["type"] == "Income")
-    expenses = sum(account.get("balance", 0) for account in accounts if account["type"] == "Expense")
+    income = sum(account.get("balance", 0)
+                 for account in accounts if account["type"] == "Income")
+    expenses = sum(account.get("balance", 0)
+                   for account in accounts if account["type"] == "Expense")
     net_profit = income - expenses
     drawings = movement(journals, "Drawings", "debit")
     closing_capital = balances.get("Capital", 0) + net_profit - drawings
-    balance_sheet = sum(account.get("balance", 0) for account in accounts if account["type"] == "Asset")
+    balance_sheet = sum(account.get("balance", 0)
+                        for account in accounts if account["type"] == "Asset")
 
     actual = {
-        "cash": balances.get("Cash", 0), "bank": balances.get("Bank", 0),
+        "cash": balances.get("Cash", 0), "bank": balances.get("Bank Account", 0),
         "gross_sales": gross_sales, "sales_returns": sales_returns, "net_sales": net_sales,
         "gross_purchases": gross_purchases, "purchase_returns": purchase_returns,
         "goods_withdrawn": goods_withdrawn, "net_purchases": net_purchases,
@@ -219,10 +309,14 @@ def verify(api: ApiClient) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default=os.getenv("ACCOUNTING_API_URL", "http://localhost:8000"))
-    parser.add_argument("--email", default=os.getenv("ACCOUNTING_API_EMAIL", "superadmin@accountingapp.com"))
-    parser.add_argument("--password", default=os.getenv("ACCOUNTING_API_PASSWORD"))
-    parser.add_argument("--dry-run", action="store_true", help="Validate and inspect without writing")
+    parser.add_argument(
+        "--base-url", default=os.getenv("ACCOUNTING_API_URL", "http://localhost:8000"))
+    parser.add_argument(
+        "--email", default=os.getenv("ACCOUNTING_API_EMAIL", "superadmin@accountingapp.com"))
+    parser.add_argument(
+        "--password", default=os.getenv("ACCOUNTING_API_PASSWORD"))
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Validate and inspect without writing")
     args = parser.parse_args()
     if not args.password:
         parser.error("set ACCOUNTING_API_PASSWORD or pass --password")
@@ -236,21 +330,19 @@ def main() -> int:
         if status != 200 or health.get("status") != "ok":
             raise RuntimeError(f"Backend health check failed: {health}")
         print(f"Backend reachable: {args.base_url} ({health['status']})")
-        api.request("POST", "/api/auth/login", {"email": args.email, "password": args.password})
+        api.request("POST", "/api/auth/login",
+                    {"email": args.email, "password": args.password})
         api.request("GET", "/api/auth/me")
         print(f"Authenticated: {args.email}")
 
         _, current_accounts = api.request("GET", "/api/accounts")
         names = {account["name"] for account in current_accounts}
         used_codes = {account["code"] for account in current_accounts}
-        for index, (name, account_type, group) in enumerate(ACCOUNTS, start=1):
+        for name, account_type, group in ACCOUNTS:
             if name in names:
                 print(f"Ledger {name}: Skipped")
                 continue
-            code = f"SCN{index:03d}"
-            while code in used_codes:
-                index += 100
-                code = f"SCN{index:03d}"
+            code = next_account_code(account_type, group, used_codes)
             if args.dry_run:
                 print(f"Ledger {name}: Would create")
             else:
@@ -264,7 +356,8 @@ def main() -> int:
 
         _, journals = api.request("GET", "/api/journal-entries")
         _, voucher_records = api.request("GET", "/api/vouchers")
-        existing_numbers = {row["voucher_no"] for row in journals} | {row["voucher_no"] for row in voucher_records}
+        existing_numbers = {row["voucher_no"] for row in journals} | {
+            row["voucher_no"] for row in voucher_records}
         for voucher in VOUCHERS:
             number = voucher["voucher_no"]
             if number in existing_numbers:

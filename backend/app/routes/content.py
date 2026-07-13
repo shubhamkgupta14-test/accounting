@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from pymongo import UpdateOne
 
 from app.core.database import get_database
-from app.dependencies import require_roles
+from app.dependencies import get_current_user, require_roles
 
 router = APIRouter(prefix="/content", tags=["content"])
 
@@ -40,8 +40,7 @@ class ContentUpdate(BaseModel):
     description: str = Field(min_length=1, max_length=1000)
 
 
-@router.get("")
-async def get_content():
+async def _content_response():
     saved = await get_database().page_content.find({}).to_list(length=None)
     pages = {page: dict(values) for page, values in PAGE_CONTENT.items()}
     footer = DEFAULT_FOOTER
@@ -52,6 +51,20 @@ async def get_content():
         else:
             pages[page] = {"title": item["title"], "description": item["description"]}
     return {"pages": pages, "footer": footer}
+
+
+@router.get("/login")
+async def get_login_content():
+    saved = await get_database().page_content.find_one({"_id": "login"})
+    login = PAGE_CONTENT["login"]
+    if saved:
+        login = {"title": saved["title"], "description": saved["description"]}
+    return {"pages": {"login": login}, "footer": ""}
+
+
+@router.get("")
+async def get_content(_: dict = Depends(get_current_user)):
+    return await _content_response()
 
 
 @router.post("")

@@ -96,10 +96,10 @@ function AppShell() {
 
 export default function App() {
   return (
-    <ContentProvider><ToastProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <ContentProvider><ToastProvider>
         <SettingsProvider><AppShell /></SettingsProvider>
-      </AuthProvider>
-    </ToastProvider></ContentProvider>
+      </ToastProvider></ContentProvider>
+    </AuthProvider>
   )
 }
