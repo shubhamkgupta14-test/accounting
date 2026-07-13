@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Trash2, Search, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -8,6 +8,7 @@ import ExportMenu from '../components/ExportMenu'
 import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
+import { api, type JournalEntry } from '../lib/api'
 
 interface EntryRow { account: string; dr: number; cr: number }
 interface JournalForm {
@@ -22,12 +23,12 @@ const emptyForm = (count: number): JournalForm => ({
 })
 
 export default function JournalEntries() {
-  const { accounts, journalEntries, createJournal } = useLedgerData()
+  const { accounts, createJournal } = useLedgerData()
   const { formatDate, currencySymbol } = useAppSettings()
   const { canWrite } = useAuth()
   const { showToast } = useToast()
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState<JournalForm>(emptyForm(journalEntries.length))
+  const [form, setForm] = useState<JournalForm>(emptyForm(0))
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [sortBy, setSortBy] = useState('date-desc')
@@ -36,12 +37,23 @@ export default function JournalEntries() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [filtered, setFiltered] = useState<JournalEntry[]>([])
+  const [totalEntries, setTotalEntries] = useState(0)
+  const [reloadKey, setReloadKey] = useState(0)
 
-  const filtered = journalEntries.filter(e =>
-    (statusFilter === 'All' || e.status === statusFilter) &&
-    (e.voucherNo.toLowerCase().includes(search.toLowerCase()) || e.narration.toLowerCase().includes(search.toLowerCase()))
-  ).sort((a, b) => sortBy === 'date-asc' ? a.date.localeCompare(b.date) : sortBy === 'voucher' ? a.voucherNo.localeCompare(b.voucherNo) : b.date.localeCompare(a.date))
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const paged = filtered
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const [sort_by, sort_order] = sortBy === 'voucher' ? ['voucher_no', 'asc'] : ['date', sortBy === 'date-asc' ? 'asc' : 'desc']
+      api.journalsPage({ page, page_size: pageSize, search, status: statusFilter === 'All' ? undefined : statusFilter, sort_by, sort_order })
+        .then(result => {
+          setFiltered(result.items.map(row => ({ ...row, voucherNo: row.voucher_no, entries: row.entries.map(line => ({ ...line, dr: line.debit, cr: line.credit })) })))
+          setTotalEntries(result.total)
+        }).catch(() => { setFiltered([]); setTotalEntries(0) })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [page, pageSize, reloadKey, search, sortBy, statusFilter])
 
   const totalDr = (rows: EntryRow[]) => rows.reduce((s, r) => s + (Number(r.dr) || 0), 0)
   const totalCr = (rows: EntryRow[]) => rows.reduce((s, r) => s + (Number(r.cr) || 0), 0)
@@ -87,7 +99,8 @@ export default function JournalEntries() {
         entries: filledRows.map(row => ({ account: row.account.trim(), debit: Number(row.dr) || 0, credit: Number(row.cr) || 0 })),
       })
       setShowForm(false)
-      setForm(emptyForm(journalEntries.length + 1))
+      setForm(emptyForm(totalEntries + 1))
+      setReloadKey(key => key + 1)
       showToast('success', status === 'Posted' ? 'Journal entry posted successfully.' : 'Journal entry saved as draft.')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to save journal entry.'
@@ -112,7 +125,7 @@ export default function JournalEntries() {
             status: row.status,
           }))} />
           {canWrite && (
-            <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => { setShowForm(true); setForm(emptyForm(journalEntries.length)); setError('') }}>
+            <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => { setShowForm(true); setForm(emptyForm(totalEntries)); setError('') }}>
               <Plus size={14} /> New Entry
             </button>
           )}
@@ -260,7 +273,7 @@ export default function JournalEntries() {
           <select className="select" style={{ fontSize: 13 }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
             <option value="date-desc">Newest date</option><option value="date-asc">Oldest date</option><option value="voucher">Voucher number</option>
           </select>
-          <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#64748B' }}>{filtered.length} entries</span>
+          <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#64748B' }}>{totalEntries} entries</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
@@ -325,7 +338,7 @@ export default function JournalEntries() {
             </tbody>
           </table>
         </div>
-        <TablePagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
+        <TablePagination total={totalEntries} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Search, Eye, CheckCircle, Clock } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -8,6 +8,7 @@ import ExportMenu from '../components/ExportMenu'
 import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
+import { api, type Voucher } from '../lib/api'
 
 type VoucherType = 'Payment' | 'Receipt' | 'Contra' | 'Sales' | 'Purchase' | 'Journal'
 
@@ -54,7 +55,7 @@ const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { 
 )
 
 export default function Vouchers() {
-  const { vouchers, createVoucher, approveVoucher } = useLedgerData()
+  const { createVoucher, approveVoucher } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
   const { canWrite } = useAuth()
   const { showToast } = useToast()
@@ -67,6 +68,10 @@ export default function Vouchers() {
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [filtered, setFiltered] = useState<Voucher[]>([])
+  const [totalVouchers, setTotalVouchers] = useState(0)
+  const [typeCounts, setTypeCounts] = useState<Record<string, number>>({})
+  const [reloadKey, setReloadKey] = useState(0)
   const [form, setForm] = useState({
     voucher_no: '',
     date: new Date().toISOString().slice(0, 10),
@@ -79,7 +84,7 @@ export default function Vouchers() {
   })
 
   const openForm = () => {
-    setForm({ voucher_no: `V-${String(vouchers.length + 1).padStart(3, '0')}`, date: new Date().toISOString().slice(0, 10), type: 'Payment', party: '', amount: 0, mode: '', narration: '', status: 'Pending' })
+    setForm({ voucher_no: `V-${String(totalVouchers + 1).padStart(3, '0')}`, date: new Date().toISOString().slice(0, 10), type: 'Payment', party: '', amount: 0, mode: '', narration: '', status: 'Pending' })
     setError('')
     setShowForm(true)
   }
@@ -96,6 +101,7 @@ export default function Vouchers() {
     try {
       await createVoucher({ ...form, voucher_no: form.voucher_no.trim(), party: form.party.trim(), mode: form.mode.trim(), narration: form.narration.trim() })
       setShowForm(false)
+      setReloadKey(key => key + 1)
       showToast('success', 'Voucher created successfully.')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to create voucher.'
@@ -106,17 +112,27 @@ export default function Vouchers() {
     }
   }
 
-  const filtered = vouchers.filter(v =>
-    (typeFilter === 'All' || v.type === typeFilter) &&
-    (v.id.toLowerCase().includes(search.toLowerCase()) || v.party.toLowerCase().includes(search.toLowerCase()))
-  ).sort((a, b) => sortBy === 'date-asc' ? a.date.localeCompare(b.date) : sortBy === 'amount-desc' ? b.amount - a.amount : b.date.localeCompare(a.date))
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const paged = filtered
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const [sort_by, sort_order] = sortBy === 'amount-desc' ? ['amount', 'desc'] : ['date', sortBy === 'date-asc' ? 'asc' : 'desc']
+      Promise.all([
+        api.vouchersPage({ page, page_size: pageSize, search, type: typeFilter === 'All' ? undefined : typeFilter, sort_by, sort_order }),
+        api.voucherStats(),
+      ]).then(([result, stats]) => {
+        setFiltered(result.items.map(row => ({ ...row, backendId: row.id, id: row.voucher_no, voucherNo: row.voucher_no })))
+        setTotalVouchers(result.total)
+        setTypeCounts(stats.by_type)
+      }).catch(() => { setFiltered([]); setTotalVouchers(0) })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [page, pageSize, reloadKey, search, sortBy, typeFilter])
   const exportRows = filtered.map(row => ({
     voucher_no: row.voucherNo || row.voucher_no, date: row.date, type: row.type,
     party: row.party, mode: row.mode, amount: row.amount, status: row.status, narration: row.narration,
   }))
 
-  const summary = types.map(t => ({ type: t, count: vouchers.filter(v => v.type === t).length }))
+  const summary = types.map(t => ({ type: t, count: typeCounts[t] || 0 }))
 
   return (
     <div>
@@ -211,7 +227,7 @@ export default function Vouchers() {
             </tbody>
           </table>
         </div>
-        <TablePagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
+        <TablePagination total={totalVouchers} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
         <div className="total-amount" style={{ padding: '0 20px 12px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>Filtered total: {formatMoney(filtered.reduce((s, v) => s + v.amount, 0))}</div>
       </div>
 

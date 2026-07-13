@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Literal
 from pymongo import ReturnDocument
 
 from app.core.database import get_database
 from app.dependencies import get_current_user, require_roles
 from app.schemas import JournalEntryCreate
 from app.utils import object_id, serialize_doc, serialize_many
+from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
 
 router = APIRouter(prefix="/journal-entries", tags=["journal entries"])
 
@@ -16,6 +18,31 @@ router = APIRouter(prefix="/journal-entries", tags=["journal entries"])
 async def list_journal_entries(_: dict = Depends(get_current_user)):
     docs = await get_database().journal_entries.find({}).sort("date", -1).to_list(500)
     return serialize_many(docs)
+
+
+@router.get("/page")
+async def page_journal_entries(
+    params: PageParams = Depends(),
+    search: str | None = Query(default=None, max_length=200),
+    status_filter: Literal["Draft", "Posted"] | None = Query(default=None, alias="status"),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort_by: Literal["date", "voucher_no", "created_at"] = "date",
+    sort_order: SortOrder = "desc",
+    _: dict = Depends(get_current_user),
+):
+    query: dict = {}
+    pattern = safe_search(search)
+    if pattern:
+        query["$or"] = [{"voucher_no": {"$regex": pattern, "$options": "i"}}, {"narration": {"$regex": pattern, "$options": "i"}}]
+    if status_filter:
+        query["status"] = status_filter
+    if date_from or date_to:
+        query["date"] = {**({"$gte": date_from} if date_from else {}), **({"$lte": date_to} if date_to else {})}
+    db = get_database()
+    total = await db.journal_entries.count_documents(query)
+    docs = await db.journal_entries.find(query).sort(sort_by, sort_direction(sort_order)).skip(params.skip).limit(params.page_size).to_list(params.page_size)
+    return page_response(docs, params, total)
 
 
 @router.post("", status_code=201)

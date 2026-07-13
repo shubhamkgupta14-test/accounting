@@ -1,12 +1,25 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, FileText, BookOpen, Scale, TrendingUp, AlertTriangle, Wallet, Landmark, ShoppingCart, BadgeIndianRupee } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import type { PageId } from '../App'
-import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { useAppSettings } from '../context/SettingsContext'
 import PageIntro from '../components/PageIntro'
+import { api, type JournalEntry } from '../lib/api'
 
 interface Props { onNavigate: (page: PageId) => void }
+
+interface DashboardReport {
+  stats: { cash: number; bank: number; sales: number; purchases: number; profit: number; pending_vouchers: number }
+  recent_journals: JournalEntry[]
+  monthly: { key: string; sales: number; expenses: number; inflow: number; outflow: number; profit: number }[]
+  expense_breakdown: { name: string; value: number }[]
+}
+
+const emptyReport: DashboardReport = {
+  stats: { cash: 0, bank: 0, sales: 0, purchases: 0, profit: 0, pending_vouchers: 0 },
+  recent_journals: [], monthly: [], expense_breakdown: [],
+}
 
 const fmt = (n: number, symbol: string, compact?: boolean) => {
   if (compact && Math.abs(n) >= 100000) {
@@ -40,52 +53,34 @@ const CustomTooltip = ({ active, payload, label, currencySymbol }: any) => {
 }
 
 export default function Dashboard({ onNavigate }: Props) {
-  const { accounts, journalEntries, vouchers, cashTransactions, bankTransactions, refresh } = useLedgerData()
   const { canWrite } = useAuth()
   const { settings, formatMoney, formatDate, currencySymbol } = useAppSettings()
-  const accountType = (name: string) => accounts.find(account => account.name === name)?.type
-  const sum = (predicate: (account: any) => boolean) =>
-    accounts.filter(predicate).reduce((total, account) => total + (account.balance || 0), 0)
-
-  const postedEntries = journalEntries.filter(entry => entry.status === 'Posted')
-  const sales = postedEntries.reduce((total, entry) => total + entry.entries.reduce((lineTotal, line) => lineTotal + (line.account === 'Sales' ? line.credit : 0), 0), 0)
-  const purchases = postedEntries.reduce((total, entry) => total + entry.entries.reduce((lineTotal, line) => lineTotal + (line.account === 'Purchases' ? line.debit : 0), 0), 0)
-  const netProfit = sum(account => account.type === 'Income') - sum(account => account.type === 'Expense')
+  const [report, setReport] = useState<DashboardReport>(emptyReport)
+  const refreshing = useRef(false)
+  const refresh = useCallback(async () => {
+    if (refreshing.current) return
+    refreshing.current = true
+    try { setReport(await api.dashboard()) }
+    finally { refreshing.current = false }
+  }, [])
+  useEffect(() => {
+    void refresh().catch(() => undefined)
+    const interval = window.setInterval(() => { void refresh().catch(() => undefined) }, 10 * 60 * 1000)
+    return () => window.clearInterval(interval)
+  }, [refresh])
   const stats = [
-    { label: 'Cash Balance', value: cashTransactions.at(-1)?.balance ?? sum(account => account.name.toLowerCase().includes('cash')), color: '#10B981', background: '#ECFDF5', icon: <Wallet size={19} /> },
-    { label: 'Bank Balance', value: bankTransactions.at(-1)?.balance ?? sum(account => account.group === 'Bank'), color: '#2563EB', background: '#EFF6FF', icon: <Landmark size={19} /> },
-    { label: 'Total Sales', value: sales, color: '#7C3AED', background: '#F5F3FF', icon: <BadgeIndianRupee size={19} /> },
-    { label: 'Total Purchases', value: purchases, color: '#F59E0B', background: '#FFFBEB', icon: <ShoppingCart size={19} /> },
-    { label: 'Net Profit', value: netProfit, color: '#0891B2', background: '#ECFEFF', icon: <TrendingUp size={19} /> },
+    { label: 'Cash Balance', value: report.stats.cash, color: '#10B981', background: '#ECFDF5', icon: <Wallet size={19} /> },
+    { label: 'Bank Balance', value: report.stats.bank, color: '#2563EB', background: '#EFF6FF', icon: <Landmark size={19} /> },
+    { label: 'Total Sales', value: report.stats.sales, color: '#7C3AED', background: '#F5F3FF', icon: <BadgeIndianRupee size={19} /> },
+    { label: 'Total Purchases', value: report.stats.purchases, color: '#F59E0B', background: '#FFFBEB', icon: <ShoppingCart size={19} /> },
+    { label: 'Net Profit', value: report.stats.profit, color: '#0891B2', background: '#ECFEFF', icon: <TrendingUp size={19} /> },
   ]
-  const pendingCount = vouchers.filter(voucher => voucher.status === 'Pending').length
-  const recentEntries = journalEntries.slice(0, 5)
+  const pendingCount = report.stats.pending_vouchers
+  const recentEntries = report.recent_journals.map(entry => ({ ...entry, voucherNo: entry.voucher_no, entries: entry.entries.map(line => ({ ...line, dr: line.debit, cr: line.credit })) }))
   const expenseColors = ['#2563EB', '#7C3AED', '#F59E0B', '#10B981', '#EF4444', '#0891B2']
-  const expenseBreakdown = accounts
-    .filter(account => account.type === 'Expense' && (account.balance || 0) !== 0)
-    .map((account, index) => ({ name: account.name, value: Math.abs(account.balance || 0), color: expenseColors[index % expenseColors.length] }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6)
-
-  const monthlyRevenue = Object.values(postedEntries.reduce<Record<string, { key: string; month: string; sales: number; expenses: number; profit: number }>>((acc, entry) => {
-    const key = entry.date.slice(0, 7)
-    const month = new Date(`${key}-01T00:00:00`).toLocaleString('en-IN', { month: 'short', year: '2-digit' })
-    acc[key] ||= { key, month, sales: 0, expenses: 0, profit: 0 }
-    entry.entries.forEach(line => {
-      if (accountType(line.account) === 'Income') acc[key].sales += line.credit
-      if (accountType(line.account) === 'Expense') acc[key].expenses += line.debit
-    })
-    acc[key].profit = acc[key].sales - acc[key].expenses
-    return acc
-  }, {})).sort((a, b) => a.key.localeCompare(b.key))
-
-  const cashflowData = Object.values([...cashTransactions, ...bankTransactions].reduce<Record<string, { month: string; inflow: number; outflow: number }>>((acc, row) => {
-    const month = new Date(row.date).toLocaleString('en-IN', { month: 'short', year: '2-digit' })
-    acc[month] ||= { month, inflow: 0, outflow: 0 }
-    acc[month].inflow += row.debit
-    acc[month].outflow += row.credit
-    return acc
-  }, {}))
+  const expenseBreakdown = report.expense_breakdown.map((entry, index) => ({ ...entry, color: expenseColors[index % expenseColors.length] }))
+  const monthlyRevenue = report.monthly.map(row => ({ ...row, month: new Date(`${row.key}-01T00:00:00`).toLocaleString('en-IN', { month: 'short', year: '2-digit' }) }))
+  const cashflowData = monthlyRevenue
 
   return (
     <div>

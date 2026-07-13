@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends
 
 from app.core.database import get_database
 from app.dependencies import get_current_user
-from app.accounting import accounts_with_balances, journal_totals_by_account
+from app.accounting import accounts_with_balances
 from app.utils import serialize_many
+from app.pagination import PageParams, page_response
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -14,15 +15,47 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 async def dashboard(_: dict = Depends(get_current_user)):
     db = get_database()
     accounts = await accounts_with_balances(db)
-    journal_totals = await journal_totals_by_account(db)
-    vouchers = await db.vouchers.find({}).to_list(500)
     journals = await db.journal_entries.find({}).sort("date", -1).limit(5).to_list(5)
+    posted = await db.journal_entries.find({"status": "Posted"}, {"date": 1, "entries": 1}).sort("date", 1).to_list(length=None)
+    account_types = {account["name"]: account.get("type") for account in accounts}
+    cash_bank_names = {
+        account["name"] for account in accounts
+        if "cash" in account["name"].lower() or account.get("group", "").lower() == "bank"
+    }
+    monthly = defaultdict(lambda: {"sales": 0.0, "expenses": 0.0, "inflow": 0.0, "outflow": 0.0})
+    expense_breakdown = defaultdict(float)
+    sales = 0.0
+    purchases = 0.0
+    for journal in posted:
+        key = str(journal.get("date", ""))[:7]
+        if not key:
+            continue
+        for line in journal.get("entries", []):
+            name = line.get("account", "")
+            debit = float(line.get("debit", 0) or 0)
+            credit = float(line.get("credit", 0) or 0)
+            if name == "Sales":
+                sales += credit
+            if name == "Purchases":
+                purchases += debit
+            if account_types.get(name) == "Income":
+                monthly[key]["sales"] += credit
+            if account_types.get(name) == "Expense":
+                monthly[key]["expenses"] += debit
+                expense_breakdown[name] += debit
+            if name in cash_bank_names:
+                monthly[key]["inflow"] += debit
+                monthly[key]["outflow"] += credit
+    manual_transactions = await db.transactions.find({}, {"date": 1, "debit": 1, "credit": 1}).to_list(length=None)
+    for transaction in manual_transactions:
+        key = str(transaction.get("date", ""))[:7]
+        if key:
+            monthly[key]["inflow"] += float(transaction.get("debit", 0) or 0)
+            monthly[key]["outflow"] += float(transaction.get("credit", 0) or 0)
 
     def total_by(names: set[str]) -> float:
         return sum(a.get("balance", 0) for a in accounts if a.get("name") in names or a.get("group") in names)
 
-    sales = journal_totals.get("Sales", {}).get("credit", 0)
-    purchases = journal_totals.get("Purchases", {}).get("debit", 0)
     total_income = sum(a.get("balance", 0) for a in accounts if a.get("type") == "Income")
     total_expenses = sum(a.get("balance", 0) for a in accounts if a.get("type") == "Expense")
     return {
@@ -32,9 +65,14 @@ async def dashboard(_: dict = Depends(get_current_user)):
             "sales": sales,
             "purchases": purchases,
             "profit": total_income - total_expenses,
-            "pending_vouchers": sum(1 for v in vouchers if v.get("status") == "Pending"),
+            "pending_vouchers": await db.vouchers.count_documents({"status": "Pending"}),
         },
         "recent_journals": serialize_many(journals),
+        "monthly": [{"key": key, **values, "profit": values["sales"] - values["expenses"]} for key, values in sorted(monthly.items())],
+        "expense_breakdown": [
+            {"name": name, "value": value}
+            for name, value in sorted(expense_breakdown.items(), key=lambda item: item[1], reverse=True)[:6]
+        ],
     }
 
 
@@ -66,7 +104,7 @@ async def trial_balance(_: dict = Depends(get_current_user)):
 async def ledger(account_name: str, _: dict = Depends(get_current_user)):
     db = get_database()
     account = await db.accounts.find_one({"name": account_name})
-    journal_docs = await db.journal_entries.find({"status": "Posted", "entries.account": account_name}).sort("date", 1).to_list(500)
+    journal_docs = await db.journal_entries.find({"status": "Posted", "entries.account": account_name}).sort("date", 1).to_list(length=None)
     balance = account.get("opening_balance", 0) if account else 0
     debit_nature = not account or account.get("type") in {"Asset", "Expense"}
     rows = []
@@ -86,3 +124,41 @@ async def ledger(account_name: str, _: dict = Depends(get_current_user)):
                 "balance": balance,
             })
     return rows
+
+
+@router.get("/ledger/{account_name}/page")
+async def ledger_page(account_name: str, params: PageParams = Depends(), _: dict = Depends(get_current_user)):
+    db = get_database()
+    account = await db.accounts.find_one({"name": account_name})
+    balance = float(account.get("opening_balance", 0) if account else 0)
+    debit_nature = not account or account.get("type") in {"Asset", "Expense"}
+    prior_pipeline = [{"$match": {"_id": {"$exists": False}}}]
+    if params.skip:
+        prior_pipeline = [
+            {"$limit": params.skip},
+            {"$group": {"_id": None, "debit": {"$sum": "$entries.debit"}, "credit": {"$sum": "$entries.credit"}}},
+        ]
+    pipeline = [
+        {"$match": {"status": "Posted", "entries.account": account_name}},
+        {"$unwind": "$entries"},
+        {"$match": {"entries.account": account_name}},
+        {"$sort": {"date": 1, "_id": 1}},
+        {"$facet": {
+            "metadata": [{"$count": "total"}],
+            "prior": prior_pipeline,
+            "items": [{"$skip": params.skip}, {"$limit": params.page_size}],
+        }},
+    ]
+    result = (await db.journal_entries.aggregate(pipeline).to_list(1))[0]
+    total = result["metadata"][0]["total"] if result["metadata"] else 0
+    if result["prior"]:
+        movement = float(result["prior"][0].get("debit", 0)) - float(result["prior"][0].get("credit", 0))
+        balance += movement if debit_nature else -movement
+    rows = []
+    for doc in result["items"]:
+        line = doc["entries"]
+        debit, credit = float(line.get("debit", 0)), float(line.get("credit", 0))
+        movement = debit - credit
+        balance += movement if debit_nature else -movement
+        rows.append({"date": doc["date"], "particulars": doc["narration"], "voucher_no": doc["voucher_no"], "type": "Receipt" if debit else "Payment", "debit": debit, "credit": credit, "balance": balance})
+    return {**page_response([], params, total), "items": rows}
