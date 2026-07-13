@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext'
 import { api } from '../lib/api'
 import PasswordInput from '../components/PasswordInput'
 import { usePageContent } from '../context/ContentContext'
+import { Spinner } from '../components/Loading'
 
 export default function SignIn() {
   const pageContent = usePageContent('login')
@@ -114,7 +115,7 @@ export default function SignIn() {
             <PasswordInput className="input" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
           {error && <div className="auth-error">{error}</div>}
-          <button className="btn btn-primary auth-submit" disabled={loading}>{loading ? 'Signing in...' : 'Sign in'}</button>
+          <button className="btn btn-primary auth-submit" disabled={loading}>{loading && <Spinner />} {loading ? 'Signing in...' : 'Sign in'}</button>
           <button type="button" className="btn btn-ghost" style={{ justifyContent: 'center', fontSize: 12.5 }} onClick={() => setResetMode(true)}>
             Forgot password?
           </button>
@@ -126,7 +127,7 @@ export default function SignIn() {
               <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} />
             </div>
             <button type="button" className="btn btn-secondary auth-submit" disabled={loading || otpCooldown > 0 || !email} onClick={requestOtp}>
-              {loading ? 'Sending OTP...' : otpCooldown > 0 ? `Resend OTP in ${otpCooldown}s` : devOtp ? 'Resend OTP' : 'Send OTP'}
+              {loading && <Spinner />} {loading ? 'Sending OTP...' : otpCooldown > 0 ? `Resend OTP in ${otpCooldown}s` : devOtp ? 'Resend OTP' : 'Send OTP'}
             </button>
             {devOtp && (
               <div className="auth-error" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -143,7 +144,7 @@ export default function SignIn() {
             <PasswordInput className="input" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
             {error && <div className="auth-error">{error}</div>}
             <button type="button" className="btn btn-primary auth-submit" disabled={loading || !otp || !newPassword} onClick={resetPassword}>
-              Reset Password
+              {loading && <Spinner />} {loading ? 'Resetting...' : 'Reset Password'}
             </button>
             <button type="button" className="btn btn-ghost" style={{ justifyContent: 'center', fontSize: 12.5 }} onClick={() => { setResetMode(false); setOtpCooldown(0) }}>
               Back to sign in

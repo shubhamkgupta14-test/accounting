@@ -49,6 +49,7 @@ function DataLoadingGate({ page, children }: { page: PageId; children: React.Rea
 
 function AppShell() {
   const [activePage, setActivePage] = useState<PageId>('dashboard')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { user, loading } = useAuth()
 
   if (loading) {
@@ -83,8 +84,8 @@ function AppShell() {
   }
   return (
     <DataProvider activePage={activePage}>
-      <Sidebar activePage={activePage} onNavigate={setActivePage} />
-      <Header activePage={activePage} onNavigate={setActivePage} />
+      <Sidebar activePage={activePage} onNavigate={setActivePage} mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
+      <Header activePage={activePage} onNavigate={setActivePage} onOpenMenu={() => setMobileMenuOpen(true)} />
       <main className="main-content">
         <DataLoadingGate page={activePage}><Suspense fallback={<PageSkeletonFor page={activePage} />}>{pages[activePage]}</Suspense></DataLoadingGate>
         <PageFooter />

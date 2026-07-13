@@ -80,8 +80,8 @@ export default function Ledger({ onNavigate }: Props) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
-        <div className="card" style={{ height: 'fit-content', maxHeight: 'calc(100vh - 180px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="ledger-layout" style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
+        <div className="card ledger-account-list" style={{ height: 'fit-content', maxHeight: 'calc(100vh - 180px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid #E2E8F0' }}>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />

@@ -1,12 +1,12 @@
-import { Bell, HelpCircle } from 'lucide-react'
+import { Bell, HelpCircle, Menu } from 'lucide-react'
 import type { PageId } from '../App'
 import { useAuth } from '../context/AuthContext'
 import { useAppSettings } from '../context/SettingsContext'
 import { usePageContent } from '../context/ContentContext'
 
-interface Props { activePage: PageId; onNavigate: (page: PageId) => void }
+interface Props { activePage: PageId; onNavigate: (page: PageId) => void; onOpenMenu: () => void }
 
-export default function Header({ activePage, onNavigate }: Props) {
+export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
   const pageContent = usePageContent(activePage)
   const { user } = useAuth()
   const { settings } = useAppSettings()
@@ -19,6 +19,7 @@ export default function Header({ activePage, onNavigate }: Props) {
 
   return (
     <header className="top-header">
+      <button className="btn btn-ghost mobile-menu-button" aria-label="Open navigation" onClick={onOpenMenu}><Menu size={19} /></button>
       {/* Brand and current page breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
         <button type="button" style={{ ...crumbStyle, fontSize: 15, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.01em' }} onClick={() => onNavigate('dashboard')}>
@@ -38,11 +39,11 @@ export default function Header({ activePage, onNavigate }: Props) {
             background: '#EF4444', border: '1.5px solid white'
           }} />
         </button>
-        <button className="btn btn-ghost" style={{ padding: '6px 8px' }} title="Help">
+        <button className="btn btn-ghost header-help" style={{ padding: '6px 8px' }} title="Help">
           <HelpCircle size={16} />
         </button>
         <div style={{ width: 1, height: 20, background: '#E2E8F0', margin: '0 4px' }} />
-        <div style={{
+        <div className="header-user" style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '4px 8px', borderRadius: 8, cursor: 'pointer',
           transition: 'background 0.15s'
