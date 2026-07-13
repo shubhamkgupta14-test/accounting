@@ -8,8 +8,8 @@ import { Scale, TrendingDown, TrendingUp } from 'lucide-react'
 export default function TradingAccount() {
   const { accounts } = useLedgerData()
   const { formatMoney } = useAppSettings()
-  const directExpenses = accounts.filter(account => account.type === 'Expense' && account.group === 'Direct Expenses')
-  const directIncome = accounts.filter(account => account.type === 'Income' && account.group === 'Direct Income')
+  const directExpenses = accounts.filter(account => account.type === 'Expense' && account.group === 'Direct Expenses' && (account.balance || 0) !== 0)
+  const directIncome = accounts.filter(account => account.type === 'Income' && account.group === 'Direct Income' && (account.balance || 0) !== 0)
   const debitTotal = directExpenses.reduce((sum, account) => sum + (account.balance || 0), 0)
   const creditTotal = directIncome.reduce((sum, account) => sum + (account.balance || 0), 0)
   const grossProfit = creditTotal - debitTotal
@@ -58,7 +58,7 @@ export default function TradingAccount() {
                     <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 ))}
-                {grossProfit >= 0 && (
+                {grossProfit > 0 && (
                   <tr style={{ background: '#F0FDF4', borderTop: '2px solid #BBF7D0' }}>
                     <td style={{ padding: '10px 20px', fontWeight: 700, color: '#065F46' }}>Gross Profit c/d</td>
                     <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#10B981' }}>{grossProfit.toLocaleString('en-IN')}</td>

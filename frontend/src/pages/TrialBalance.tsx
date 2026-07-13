@@ -10,7 +10,7 @@ export default function TrialBalance() {
   const { formatMoney, currencySymbol } = useAppSettings()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
-  const trialData = accounts.map(a => {
+  const trialData = accounts.filter(a => (a.balance || 0) !== 0).map(a => {
     const balance = a.balance || 0
     const debitNature = ['Asset', 'Expense'].includes(a.type)
     return {

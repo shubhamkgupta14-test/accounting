@@ -7,8 +7,8 @@ import { useAppSettings } from '../context/SettingsContext'
 export default function ProfitLoss() {
   const { accounts } = useLedgerData()
   const { formatMoney } = useAppSettings()
-  const income = accounts.filter(account => account.type === 'Income')
-  const expenses = accounts.filter(account => account.type === 'Expense')
+  const income = accounts.filter(account => account.type === 'Income' && (account.balance || 0) !== 0)
+  const expenses = accounts.filter(account => account.type === 'Expense' && (account.balance || 0) !== 0)
   const totalIncome = income.reduce((sum, account) => sum + (account.balance || 0), 0)
   const totalExpenses = expenses.reduce((sum, account) => sum + (account.balance || 0), 0)
   const netProfit = totalIncome - totalExpenses
@@ -43,7 +43,7 @@ export default function ProfitLoss() {
             <div style={{ background: '#ECFDF5', padding: '10px 20px', borderBottom: '1px solid #A7F3D0' }}><span style={{ fontSize: 12, fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Dr - Expenses</span></div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
               {expenses.map(account => <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13 }}>{account.name}</td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{(account.balance || 0).toLocaleString('en-IN')}</td></tr>)}
-              {netProfit >= 0 && <tr style={{ background: '#EFF6FF', color: '#2563EB' }}><td style={{ padding: '10px 20px', fontWeight: 700 }}>Net Profit</td><td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800 }}>{netProfit.toLocaleString('en-IN')}</td></tr>}
+              {netProfit > 0 && <tr style={{ background: '#EFF6FF', color: '#2563EB' }}><td style={{ padding: '10px 20px', fontWeight: 700 }}>Net Profit</td><td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800 }}>{netProfit.toLocaleString('en-IN')}</td></tr>}
             </tbody></table>
           </div>
           <div>

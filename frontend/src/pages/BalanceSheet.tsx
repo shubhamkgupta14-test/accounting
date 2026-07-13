@@ -8,8 +8,8 @@ import { useAppSettings } from '../context/SettingsContext'
 export default function BalanceSheet() {
   const { accounts } = useLedgerData()
   const { formatMoney } = useAppSettings()
-  const assets = accounts.filter(account => account.type === 'Asset')
-  const liabilitiesAndCapital = accounts.filter(account => ['Liability', 'Equity'].includes(account.type))
+  const assets = accounts.filter(account => account.type === 'Asset' && (account.balance || 0) !== 0)
+  const liabilitiesAndCapital = accounts.filter(account => ['Liability', 'Equity'].includes(account.type) && (account.balance || 0) !== 0)
   const totalAssets = assets.reduce((sum, account) => sum + (account.balance || 0), 0)
   const income = accounts.filter(account => account.type === 'Income').reduce((sum, account) => sum + (account.balance || 0), 0)
   const expenses = accounts.filter(account => account.type === 'Expense').reduce((sum, account) => sum + (account.balance || 0), 0)
