@@ -124,7 +124,7 @@ const recalculateBookRows = (rows: BookTransaction[], opening: number) => {
     });
 };
 
-export function DataProvider({ children }: { children: React.ReactNode }) {
+export function DataProvider({ children, activePage }: { children: React.ReactNode; activePage: string }) {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
@@ -137,19 +137,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
   const [loading, setLoading] = useState(false);
   const refreshingRef = useRef(false);
+  const accountsCacheRef = useRef<Account[]>([]);
 
   const refresh = useCallback(async () => {
     if (!user || refreshingRef.current) return;
     refreshingRef.current = true;
     setLoading(true);
     try {
+      const needsAccounts = !["dashboard", "daybook", "reports", "settings", "notifications", "user-management", "clean-db"].includes(activePage);
+      const needsJournals = ["cashbook", "bankbook", "profit-analysis", "cash-flow-report"].includes(activePage);
+      const needsCash = ["cashbook", "cash-flow-report"].includes(activePage);
+      const needsBank = ["bankbook", "cash-flow-report"].includes(activePage);
       const [accountRows, journalRows, voucherRows, cashRows, bankRows] =
         await Promise.all([
-          api.accounts(),
-          api.journals(),
-          api.vouchers(),
-          api.transactions("cash"),
-          api.transactions("bank"),
+          needsAccounts && accountsCacheRef.current.length === 0 ? api.accounts() : Promise.resolve(accountsCacheRef.current),
+          needsJournals ? api.journals() : Promise.resolve([]),
+          Promise.resolve([]),
+          needsCash ? api.transactions("cash") : Promise.resolve([]),
+          needsBank ? api.transactions("bank") : Promise.resolve([]),
         ]);
       const normalizedJournals = journalRows.map((row) => ({
         ...row,
@@ -172,7 +177,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             ? account.balance
             : naturalBalance(account, normalizedJournals),
       }));
-      setAccounts(accountsWithBalances);
+      if (needsAccounts) {
+        accountsCacheRef.current = accountsWithBalances;
+        setAccounts(accountsWithBalances);
+      }
       setJournalEntries(normalizedJournals);
       setVouchers(
         voucherRows.map((row) => ({
@@ -232,7 +240,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       refreshingRef.current = false;
       setLoading(false);
     }
-  }, [user]);
+  }, [activePage, user]);
 
   useEffect(() => {
     void refresh();
@@ -242,6 +250,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     const interval = window.setInterval(
       () => {
+        accountsCacheRef.current = [];
         void refresh();
       },
       10 * 60 * 1000,
@@ -260,26 +269,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       refresh,
       createJournal: async (payload) => {
         await api.createJournal(payload);
+        accountsCacheRef.current = [];
         await refresh();
       },
       createVoucher: async (payload) => {
         await api.createVoucher(payload);
+        accountsCacheRef.current = [];
         await refresh();
       },
       approveVoucher: async (id) => {
         await api.approveVoucher(id);
+        accountsCacheRef.current = [];
         await refresh();
       },
       createAccount: async (payload) => {
         await api.createAccount(payload);
+        accountsCacheRef.current = [];
         await refresh();
       },
       updateAccount: async (id, payload) => {
         await api.updateAccount(id, payload);
+        accountsCacheRef.current = [];
         await refresh();
       },
       deleteAccount: async (id) => {
         await api.deleteAccount(id);
+        accountsCacheRef.current = [];
         await refresh();
       },
     }),

@@ -4,13 +4,18 @@ import { api, type AuthUser, type UserRole } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import PasswordInput from '../components/PasswordInput'
+import { UserManagementSkeleton } from '../components/Loading'
 
 export default function UserManagement() {
   const { showToast } = useToast()
   const [users, setUsers] = useState<AuthUser[]>([])
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', role: 'user' as UserRole })
+  const [loading, setLoading] = useState(true)
 
-  const load = async () => setUsers(await api.users())
+  const load = async () => {
+    try { setUsers(await api.users()) }
+    finally { setLoading(false) }
+  }
   useEffect(() => { void load() }, [])
 
   const create = async () => {
@@ -33,6 +38,8 @@ export default function UserManagement() {
     await api.deleteUser(user.id)
     await load()
   }
+
+  if (loading) return <UserManagementSkeleton />
 
   return (
     <div>

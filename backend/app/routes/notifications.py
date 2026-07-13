@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.core.database import get_database
 from app.dependencies import get_current_user, require_roles
 from app.utils import object_id, serialize_doc, serialize_many
+from app.pagination import PageParams, page_response, safe_search
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -22,6 +23,22 @@ async def list_notifications(current_user=Depends(get_current_user)):
     query = {"$or": [{"audience": "all"}, {"audience": current_user["role"]}, {"user_id": current_user["id"]}]}
     docs = await get_database().notifications.find(query).sort("created_at", -1).to_list(100)
     return serialize_many(docs)
+
+
+@router.get("/page")
+async def page_notifications(
+    params: PageParams = Depends(), search: str | None = Query(default=None, max_length=200),
+    current_user=Depends(get_current_user),
+):
+    visibility = [{"audience": "all"}, {"audience": current_user["role"]}, {"user_id": current_user["id"]}]
+    query: dict = {"$or": visibility}
+    pattern = safe_search(search)
+    if pattern:
+        query = {"$and": [{"$or": visibility}, {"$or": [{"title": {"$regex": pattern, "$options": "i"}}, {"message": {"$regex": pattern, "$options": "i"}}]}]}
+    db = get_database()
+    total = await db.notifications.count_documents(query)
+    docs = await db.notifications.find(query).sort("created_at", -1).skip(params.skip).limit(params.page_size).to_list(params.page_size)
+    return page_response(docs, params, total)
 
 
 @router.post("", status_code=201)

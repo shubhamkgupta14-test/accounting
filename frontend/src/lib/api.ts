@@ -4,6 +4,14 @@ const API_BASE_URL = import.meta.env.DEV
 
 export type UserRole = "superadmin" | "admin" | "user";
 export interface PageContentResponse { pages: Record<string, { title: string; description: string }>; footer: string }
+export interface PageResponse<T> { items: T[]; page: number; page_size: number; total: number; pages: number }
+export interface PageQuery { page?: number; page_size?: number; search?: string; sort_by?: string; sort_order?: "asc" | "desc"; [key: string]: string | number | boolean | undefined }
+
+const queryString = (params: PageQuery) => {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== "") query.set(key, String(value)) })
+  return query.toString()
+}
 
 export interface AuthUser {
   id: string;
@@ -255,6 +263,8 @@ export const api = {
   deleteUser: (id: string) =>
     request<void>(`/auth/users/${id}`, { method: "DELETE" }),
   accounts: () => request<Account[]>("/accounts"),
+  accountsPage: (params: PageQuery) => request<PageResponse<Account>>(`/accounts/page?${queryString(params)}`),
+  accountStats: () => request<{ total: number; by_type: Record<string, number>; groups: string[] }>("/accounts/stats"),
   createAccount: (payload: Omit<Account, "id">) =>
     request<Account>("/accounts", {
       method: "POST",
@@ -268,12 +278,15 @@ export const api = {
   deleteAccount: (id: string) =>
     request<void>(`/accounts/${id}`, { method: "DELETE" }),
   journals: () => request<JournalEntry[]>("/journal-entries"),
+  journalsPage: (params: PageQuery) => request<PageResponse<JournalEntry>>(`/journal-entries/page?${queryString(params)}`),
   createJournal: (payload: JournalCreatePayload) =>
     request<JournalEntry>("/journal-entries", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
   vouchers: () => request<Voucher[]>("/vouchers"),
+  vouchersPage: (params: PageQuery) => request<PageResponse<Voucher>>(`/vouchers/page?${queryString(params)}`),
+  voucherStats: () => request<{ total: number; by_type: Record<string, number> }>("/vouchers/stats"),
   createVoucher: (payload: Omit<Voucher, "id">) =>
     request<Voucher>("/vouchers", {
       method: "POST",
@@ -283,8 +296,16 @@ export const api = {
     request<Voucher>(`/vouchers/${id}/approve`, { method: "PATCH" }),
   transactions: (book?: "cash" | "bank") =>
     request<BookTransaction[]>(`/transactions${book ? `?book=${book}` : ""}`),
+  transactionsPage: (params: PageQuery) => request<PageResponse<BookTransaction>>(`/transactions/page?${queryString(params)}`),
   ledger: (accountName: string) =>
     request<LedgerRow[]>(`/reports/ledger/${encodeURIComponent(accountName)}`),
+  ledgerPage: (accountName: string, params: PageQuery) => request<PageResponse<LedgerRow>>(`/reports/ledger/${encodeURIComponent(accountName)}/page?${queryString(params)}`),
+  dashboard: () => request<{
+    stats: { cash: number; bank: number; sales: number; purchases: number; profit: number; pending_vouchers: number };
+    recent_journals: JournalEntry[];
+    monthly: { key: string; revenue: number; expenses: number; inflow: number; outflow: number; profit: number }[];
+    expense_breakdown: { name: string; value: number }[];
+  }>("/reports/dashboard"),
   notifications: () => request<Notification[]>("/notifications"),
   createNotification: (payload: {
     title: string;

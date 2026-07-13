@@ -3,18 +3,20 @@ import { Database, Trash2 } from 'lucide-react'
 import { api, type AdminCollection } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
+import { CleanDatabaseSkeleton, Spinner } from '../components/Loading'
 
 export default function CleanDatabase() {
   const { showToast } = useToast()
   const [collections, setCollections] = useState<AdminCollection[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [cleaning, setCleaning] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     api.adminCollections().then(rows => {
       setCollections(rows)
       setSelected(rows.filter(row => row.default_selected).map(row => row.name))
-    })
+    }).catch(() => showToast('error', 'Unable to load database collections.')).finally(() => setLoading(false))
   }, [])
 
   const clean = async () => {
@@ -30,6 +32,8 @@ export default function CleanDatabase() {
     }
   }
 
+  if (loading) return <CleanDatabaseSkeleton />
+
   return (
     <div>
       <div className="page-header">
@@ -44,7 +48,7 @@ export default function CleanDatabase() {
             Select All
           </button>
           <button className="btn btn-danger" disabled={selected.length === 0 || cleaning} onClick={clean}>
-            <Trash2 size={14} /> {cleaning ? 'Cleaning…' : 'Run Clean Action'}
+            {cleaning ? <Spinner /> : <Trash2 size={14} />} {cleaning ? 'Cleaning…' : 'Run Clean Action'}
           </button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>

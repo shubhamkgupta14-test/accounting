@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import secrets
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -11,8 +12,9 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.dependencies import get_current_user, require_roles
 from app.email import send_html_email
 from app.email_templates import otp_email_html
-from app.schemas import LoginRequest, UserCreate
+from app.schemas import LoginRequest, Role, UserCreate
 from app.utils import object_id, serialize_doc, serialize_many
+from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 DUMMY_PASSWORD_HASH = hash_password("invalid-password-placeholder")
@@ -135,6 +137,25 @@ async def me(current_user=Depends(get_current_user)):
 async def list_users(_: dict = Depends(require_roles("superadmin"))):
     docs = await get_database().users.find({}, {"password_hash": 0}).sort("created_at", -1).to_list(200)
     return serialize_many(docs)
+
+
+@router.get("/users/page")
+async def page_users(
+    params: PageParams = Depends(), search: str | None = None,
+    role: Role | None = None, is_active: bool | None = None,
+    sort_by: Literal["created_at", "email", "first_name", "role"] = "created_at", sort_order: SortOrder = "desc",
+    _: dict = Depends(require_roles("superadmin")),
+):
+    query: dict = {}
+    pattern = safe_search(search)
+    if pattern:
+        query["$or"] = [{field: {"$regex": pattern, "$options": "i"}} for field in ("first_name", "last_name", "email")]
+    if role: query["role"] = role
+    if is_active is not None: query["is_active"] = is_active
+    db = get_database()
+    total = await db.users.count_documents(query)
+    docs = await db.users.find(query, {"password_hash": 0}).sort(sort_by, sort_direction(sort_order)).skip(params.skip).limit(params.page_size).to_list(params.page_size)
+    return page_response(docs, params, total)
 
 
 @router.post("/users", status_code=201)

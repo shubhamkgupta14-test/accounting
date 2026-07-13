@@ -32,7 +32,7 @@ export default function ExportMenu({ title, rows, tableSelector = '.data-table',
 
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
-      <button className="btn btn-secondary" style={{ fontSize: 13 }} onClick={() => setOpen(true)}>
+      <button className="btn btn-secondary" style={{ fontSize: 13, height: 34, whiteSpace: 'nowrap' }} onClick={() => setOpen(true)}>
         <Download size={14} /> Export
       </button>
       {open && (

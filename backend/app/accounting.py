@@ -21,8 +21,24 @@ async def journal_totals_by_account(db) -> dict[str, dict[str, float]]:
 
 
 async def accounts_with_balances(db) -> list[dict]:
-    accounts = await db.accounts.find({}).sort("code", 1).to_list(500)
+    accounts = await db.accounts.find({}).sort("code", 1).to_list(length=None)
     totals = await journal_totals_by_account(db)
+    for account in accounts:
+        account["balance"] = natural_balance(account, totals)
+    return accounts
+
+
+async def add_balances_to_accounts(db, accounts: list[dict]) -> list[dict]:
+    names = [account["name"] for account in accounts]
+    if not names:
+        return accounts
+    rows = await db.journal_entries.aggregate([
+        {"$match": {"status": "Posted", "entries.account": {"$in": names}}},
+        {"$unwind": "$entries"},
+        {"$match": {"entries.account": {"$in": names}}},
+        {"$group": {"_id": "$entries.account", "debit": {"$sum": "$entries.debit"}, "credit": {"$sum": "$entries.credit"}}},
+    ]).to_list(length=None)
+    totals = {row["_id"]: row for row in rows}
     for account in accounts:
         account["balance"] = natural_balance(account, totals)
     return accounts

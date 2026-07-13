@@ -1,45 +1,53 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Search, Calendar } from 'lucide-react'
-import { useLedgerData } from '../context/DataContext'
 import ExportMenu from '../components/ExportMenu'
 import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
+import { api, type JournalEntry } from '../lib/api'
+import { DayBookSkeleton } from '../components/Loading'
 
 
 export default function DayBook() {
-  const { journalEntries } = useLedgerData()
   const { currencySymbol } = useAppSettings()
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [entries, setEntries] = useState<JournalEntry[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
 
-  const allEntries = journalEntries.map(e => ({
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void api.journalsPage({ page, page_size: pageSize, search, date_from: dateFrom || undefined, date_to: dateTo || undefined, sort_by: 'date', sort_order: 'desc' })
+        .then(result => {
+          setEntries(result.items.map(row => ({ ...row, voucherNo: row.voucher_no, entries: row.entries.map(line => ({ ...line, dr: line.debit, cr: line.credit })) })))
+          setTotal(result.total)
+        }).finally(() => setLoading(false))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [dateFrom, dateTo, page, pageSize, search])
+
+  const paged = entries.map(e => ({
     ...e,
     totalDr: e.entries.reduce((s, r) => s + r.dr, 0),
     totalCr: e.entries.reduce((s, r) => s + r.cr, 0),
   }))
-
-  const filtered = allEntries.filter(e =>
-    (!dateFrom || e.date >= dateFrom) && (!dateTo || e.date <= dateTo) &&
-    (e.narration.toLowerCase().includes(search.toLowerCase()) ||
-      e.voucherNo.toLowerCase().includes(search.toLowerCase()))
-  )
-
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
   const groupedByDate = paged.reduce<Record<string, typeof paged>>((acc, e) => {
     if (!acc[e.date]) acc[e.date] = []
     acc[e.date].push(e)
     return acc
   }, {})
 
+  if (loading) return <DayBookSkeleton />
+
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="daybook" />
-        <ExportMenu title="Day Book" rows={filtered.map(row => ({
+        <ExportMenu title="Day Book" rows={paged.map(row => ({
           date: row.date,
           voucher_no: row.voucherNo,
           narration: row.narration,
@@ -66,7 +74,7 @@ export default function DayBook() {
             placeholder="Search narration or voucher…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
         </div>
         <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#64748B' }}>
-          {filtered.length} entries · {Object.keys(groupedByDate).length} days
+          {total} entries · {Object.keys(groupedByDate).length} days on this page
         </span>
       </div>
 
@@ -124,13 +132,13 @@ export default function DayBook() {
         </div>
       ))}
 
-      {filtered.length === 0 && (
+      {total === 0 && (
         <div className="empty-state card">
           <Calendar size={32} />
           <p>No entries found for the selected date range</p>
         </div>
       )}
-      {filtered.length > 0 && <div className="card"><TablePagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} /></div>}
+      {total > 0 && <div className="card"><TablePagination total={total} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} /></div>}
     </div>
   )
 }

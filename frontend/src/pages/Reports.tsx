@@ -1,7 +1,6 @@
 import { FileText, TrendingUp, PieChart, Scale, BarChart2, BookOpen, Wallet, Building2, CalendarDays, ArrowRight } from 'lucide-react'
 import type { PageId } from '../App'
 import PageIntro from '../components/PageIntro'
-import { useLedgerData } from '../context/DataContext'
 
 interface ReportItem {
   icon: React.ReactNode
@@ -51,10 +50,9 @@ const reports: Array<{ category: string; items: ReportItem[] }> = [
 ]
 
 export default function Reports({ onNavigate }: { onNavigate: (page: PageId) => void }) {
-  const { refresh } = useLedgerData()
   return (
     <div>
-      <div className="page-header"><PageIntro id="reports" onReload={refresh} /></div>
+      <div className="page-header"><PageIntro id="reports" /></div>
 
       {reports.map(section => (
         <div key={section.category} style={{ marginBottom: 28 }}>

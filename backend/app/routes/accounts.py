@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Literal
 from pymongo import ReturnDocument
 
 from app.core.database import get_database
 from app.dependencies import get_current_user, require_roles
 from app.schemas import AccountCreate, AccountUpdate
 from app.utils import object_id, serialize_doc, serialize_many
-from app.accounting import accounts_with_balances
+from app.accounting import accounts_with_balances, add_balances_to_accounts
+from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -17,6 +19,39 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 async def list_accounts(_: dict = Depends(get_current_user)):
     docs = await accounts_with_balances(get_database())
     return serialize_many(docs)
+
+
+@router.get("/page")
+async def page_accounts(
+    params: PageParams = Depends(),
+    search: str | None = Query(default=None, max_length=150),
+    account_type: Literal["Asset", "Liability", "Equity", "Income", "Expense"] | None = None,
+    group: str | None = Query(default=None, max_length=150),
+    sort_by: Literal["code", "name", "type", "group"] = "code",
+    sort_order: SortOrder = "asc",
+    _: dict = Depends(get_current_user),
+):
+    db = get_database()
+    query: dict = {}
+    pattern = safe_search(search)
+    if pattern:
+        query["$or"] = [{field: {"$regex": pattern, "$options": "i"}} for field in ("code", "name", "group")]
+    if account_type:
+        query["type"] = account_type
+    if group:
+        query["group"] = group
+    total = await db.accounts.count_documents(query)
+    docs = await db.accounts.find(query).sort(sort_by, sort_direction(sort_order)).skip(params.skip).limit(params.page_size).to_list(params.page_size)
+    await add_balances_to_accounts(db, docs)
+    return page_response(docs, params, total)
+
+
+@router.get("/stats")
+async def account_stats(_: dict = Depends(get_current_user)):
+    db = get_database()
+    rows = await db.accounts.aggregate([{"$group": {"_id": "$type", "count": {"$sum": 1}}}]).to_list(length=None)
+    groups = await db.accounts.distinct("group")
+    return {"total": sum(row["count"] for row in rows), "by_type": {row["_id"]: row["count"] for row in rows if row.get("_id")}, "groups": sorted(group for group in groups if group)}
 
 
 @router.post("", status_code=201)

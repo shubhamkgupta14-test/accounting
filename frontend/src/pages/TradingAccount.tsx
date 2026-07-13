@@ -25,16 +25,16 @@ export default function TradingAccount() {
         ]} />
       </div>
 
-      <div style={{ marginBottom: 20, display: 'flex', gap: 12 }}>
-        <div className="card stat-card" style={{ minWidth: 200 }}>
+      <div style={{ marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+        <div className="card stat-card">
           <div className="label" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><Scale size={13} /> Gross Profit / Loss</div>
           <div className="value" style={{ fontSize: 22, color: '#2563EB' }}>{formatMoney(Math.abs(grossProfit))}</div>
         </div>
-        <div className="card stat-card" style={{ minWidth: 200 }}>
+        <div className="card stat-card">
           <div className="label" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><TrendingUp size={13} /> Direct Income</div>
           <div className="value" style={{ fontSize: 22, color: '#2563EB' }}>{formatMoney(creditTotal)}</div>
         </div>
-        <div className="card stat-card" style={{ minWidth: 200 }}>
+        <div className="card stat-card">
           <div className="label" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><TrendingDown size={13} /> Direct Expenses</div>
           <div className="value" style={{ fontSize: 22, color: '#EF4444' }}>{formatMoney(debitTotal)}</div>
         </div>

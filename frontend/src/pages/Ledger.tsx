@@ -8,6 +8,7 @@ import ExportMenu from '../components/ExportMenu'
 import PageIntro from '../components/PageIntro'
 import TablePagination from '../components/TablePagination'
 import { useAppSettings } from '../context/SettingsContext'
+import { TableSkeletonRows } from '../components/Loading'
 
 interface Props {
   onNavigate?: (page: PageId) => void
@@ -23,6 +24,7 @@ export default function Ledger({ onNavigate }: Props) {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [totalRows, setTotalRows] = useState(0)
 
   const selectedName = selected || accounts[0]?.name || ''
   const account = accounts.find(a => a.name === selectedName) || accounts[0]
@@ -37,16 +39,18 @@ export default function Ledger({ onNavigate }: Props) {
       return
     }
     setLoading(true)
-    api.ledger(selectedName)
-      .then(data => setRows(data.map(row => ({ ...row, voucherNo: row.voucher_no, dr: row.debit, cr: row.credit }))))
+    api.ledgerPage(selectedName, { page, page_size: pageSize })
+      .then(data => {
+        setRows(data.items.map(row => ({ ...row, voucherNo: row.voucher_no, dr: row.debit, cr: row.credit })))
+        setTotalRows(data.total)
+      })
       .catch(() => setRows([]))
       .finally(() => setLoading(false))
-  }, [selectedName])
+  }, [page, pageSize, selectedName])
 
   const totalDr = rows.reduce((s, r) => s + r.dr, 0)
   const totalCr = rows.reduce((s, r) => s + r.cr, 0)
-  const closingBalance = rows[rows.length - 1]?.balance ?? 0
-  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize)
+  const closingBalance = account?.balance ?? rows[rows.length - 1]?.balance ?? 0
 
   if (!account) {
     return (
@@ -150,7 +154,8 @@ export default function Ledger({ onNavigate }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {pagedRows.map((r, i) => (
+                {loading && <TableSkeletonRows rows={pageSize} columns={7} />}
+                {!loading && rows.map((r, i) => (
                   <tr key={`${r.voucherNo}-${i}`}>
                     <td className="date-cell"><span className="mono" style={{ fontSize: 12.5 }}>{formatDate(r.date)}</span></td>
                     <td><span className="narration-text">{r.particulars}</span></td>
@@ -169,14 +174,14 @@ export default function Ledger({ onNavigate }: Props) {
               </tbody>
               <tfoot>
                 <tr className="totals-row">
-                  <td colSpan={4} style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700 }}>Totals</td>
+                  <td colSpan={4} style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700 }}>Page totals</td>
                   <td className="num dr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalDr.toLocaleString('en-IN')}</td>
                   <td className="num cr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalCr.toLocaleString('en-IN')}</td>
                   <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{Math.abs(closingBalance).toLocaleString('en-IN')} {closingBalance >= 0 ? 'Dr' : 'Cr'}</td>
                 </tr>
               </tfoot>
             </table>
-            <TablePagination total={rows.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
+            <TablePagination total={totalRows} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
           </div>
         </div>
       </div>

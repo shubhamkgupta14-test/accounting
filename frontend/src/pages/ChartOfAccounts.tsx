@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, Search, Edit2, Trash2, X } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -7,6 +7,8 @@ import ExportMenu from '../components/ExportMenu'
 import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
+import { api, type Account } from '../lib/api'
+import { Spinner, TableSkeletonRows } from '../components/Loading'
 
 type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
 
@@ -44,6 +46,11 @@ export default function ChartOfAccounts() {
   const [sortBy, setSortBy] = useState('code')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [rows, setRows] = useState<Account[]>([])
+  const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState<{ total: number; by_type: Record<string, number>; groups: string[] }>({ total: 0, by_type: {}, groups: [] })
+  const [reloadKey, setReloadKey] = useState(0)
+  const [loadingRows, setLoadingRows] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -69,7 +76,7 @@ export default function ChartOfAccounts() {
     setShowForm(true)
   }
 
-  const openEditForm = (account: typeof accounts[number]) => {
+  const openEditForm = (account: Account) => {
     if (!account.backendId) return
     setEditingId(account.backendId)
     setForm({
@@ -107,6 +114,7 @@ export default function ChartOfAccounts() {
       }
       if (editingId) await updateAccount(editingId, payload)
       else await createAccount(payload)
+      setReloadKey(value => value + 1)
       setShowForm(false)
       showToast('success', editingId ? 'Account updated successfully.' : 'Account created successfully.')
     } catch (err) {
@@ -118,27 +126,42 @@ export default function ChartOfAccounts() {
     }
   }
 
-  const removeAccount = async (account: typeof accounts[number]) => {
+  const removeAccount = async (account: Account) => {
     if (!account.backendId || !window.confirm(`Delete ledger account "${account.name}"?`)) return
     try {
       await deleteAccount(account.backendId)
+      setReloadKey(value => value + 1)
       showToast('success', 'Account deleted successfully.')
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Unable to delete account.')
     }
   }
 
-  const filtered = accounts.filter(a =>
-    (typeFilter === 'All' || a.type === typeFilter) &&
-    (groupFilter === 'All' || a.group === groupFilter) &&
-    (a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.id.toLowerCase().includes(search.toLowerCase()) ||
-      a.group.toLowerCase().includes(search.toLowerCase()))
-  ).sort((a, b) => sortBy === 'name' ? a.name.localeCompare(b.name) : a.code.localeCompare(b.code))
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setLoadingRows(true)
+      void Promise.all([
+        api.accountsPage({
+          page,
+          page_size: pageSize,
+          search,
+          account_type: typeFilter === 'All' ? undefined : typeFilter,
+          group: groupFilter === 'All' ? undefined : groupFilter,
+          sort_by: sortBy,
+          sort_order: 'asc',
+        }),
+        api.accountStats(),
+      ]).then(([result, accountStats]) => {
+        setRows(result.items.map(row => ({ ...row, backendId: row.id, id: row.code })))
+        setTotal(result.total)
+        setStats(accountStats)
+      }).catch(error => showToast('error', error instanceof Error ? error.message : 'Unable to load accounts.')).finally(() => setLoadingRows(false))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [groupFilter, page, pageSize, reloadKey, search, showToast, sortBy, typeFilter])
 
   const summary = ['Asset', 'Liability', 'Equity', 'Income', 'Expense'].map(type => ({
-    type, count: accounts.filter(a => a.type === type).length
+    type, count: stats.by_type[type] || 0
   }))
 
   return (
@@ -146,7 +169,7 @@ export default function ChartOfAccounts() {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="chart-of-accounts" />
         <div style={{ display: 'flex', gap: 8 }}>
-          <ExportMenu fullReport title="Ledger Accounts" rows={filtered.map(row => ({
+          <ExportMenu fullReport title="Ledger Accounts" rows={rows.map(row => ({
             code: row.id,
             name: row.name,
             type: row.type,
@@ -200,13 +223,13 @@ export default function ChartOfAccounts() {
           {error && <div style={{ marginTop: 12, color: '#B91C1C', fontSize: 12.5 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
             <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-            <button className="btn btn-primary" disabled={saving} onClick={saveAccount}>{saving ? 'Saving...' : editingId ? 'Update Ledger Account' : 'Save Ledger Account'}</button>
+            <button className="btn btn-primary" disabled={saving} onClick={saveAccount}>{saving && <Spinner />} {saving ? 'Saving...' : editingId ? 'Update Ledger Account' : 'Save Ledger Account'}</button>
           </div>
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {[{ type: 'All', count: accounts.length }, ...summary].map(s => (
+        {[{ type: 'All', count: stats.total }, ...summary].map(s => (
           <button key={s.type} className="btn"
             style={{
               background: typeFilter === s.type ? '#2563EB' : 'white',
@@ -236,13 +259,13 @@ export default function ChartOfAccounts() {
           </div>
           <select className="select" style={{ fontSize: 13 }} value={groupFilter} onChange={e => { setGroupFilter(e.target.value); setPage(1) }}>
             <option value="All">All Groups</option>
-            {[...new Set(accounts.map(a => a.group))].map(g => <option key={g} value={g}>{g}</option>)}
+            {stats.groups.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
           <select className="select" style={{ fontSize: 13 }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
             <option value="code">Sort: Code</option><option value="name">Sort: Name</option>
           </select>
           <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#64748B', display: 'flex', alignItems: 'center' }}>
-            {filtered.length} ledger accounts
+            {total} ledger accounts
           </span>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -258,7 +281,8 @@ export default function ChartOfAccounts() {
               </tr>
             </thead>
             <tbody>
-              {paged.map(a => (
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 6 : 5} />}
+              {!loadingRows && rows.map(a => (
                 <tr key={a.id}>
                   <td><span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{a.id}</span></td>
                   <td style={{ fontWeight: 500 }}>{a.name}</td>
@@ -283,7 +307,7 @@ export default function ChartOfAccounts() {
                   )}
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {!loadingRows && rows.length === 0 && (
                 <tr>
                   <td colSpan={canWrite || canManageUsers ? 6 : 5}>
                     <div className="empty-state" style={{ padding: '36px 20px' }}>
@@ -295,7 +319,7 @@ export default function ChartOfAccounts() {
             </tbody>
           </table>
         </div>
-        <TablePagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
+        <TablePagination total={total} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} />
       </div>
     </div>
   )
