@@ -81,9 +81,9 @@ export default function Settings() {
         <PageIntro id="settings" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
+      <div className="settings-layout" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
         {/* Sidebar tabs */}
-        <div className="card" style={{ height: 'fit-content', padding: '8px' }}>
+        <div className="card settings-tabs" style={{ height: 'fit-content', padding: '8px' }}>
           {visibleTabs.map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
               style={{

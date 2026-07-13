@@ -67,9 +67,11 @@ const navGroups: NavGroup[] = [
 interface Props {
   activePage: PageId
   onNavigate: (page: PageId) => void
+  mobileOpen: boolean
+  onClose: () => void
 }
 
-export default function Sidebar({ activePage, onNavigate }: Props) {
+export default function Sidebar({ activePage, onNavigate, mobileOpen, onClose }: Props) {
   const { user, logout, canManageUsers } = useAuth()
   const { settings } = useAppSettings()
   const initials = `${user?.first_name?.[0] || 'F'}${user?.last_name?.[0] || 'L'}`.toUpperCase()
@@ -77,7 +79,7 @@ export default function Sidebar({ activePage, onNavigate }: Props) {
   const role = user?.role === 'superadmin' ? 'Superadmin' : user?.role === 'admin' ? 'Admin' : 'Accountant'
 
   return (
-    <aside className="sidebar">
+    <><button className={`sidebar-backdrop${mobileOpen ? ' visible' : ''}`} aria-label="Close navigation" onClick={onClose} /><aside className={`sidebar${mobileOpen ? ' mobile-open' : ''}`}>
       {/* Brand */}
       <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1E293B' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -105,7 +107,7 @@ export default function Sidebar({ activePage, onNavigate }: Props) {
               <div
                 key={item.id}
                 className={`nav-item${activePage === item.id ? ' active' : ''}`}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => { onNavigate(item.id); onClose() }}
               >
                 {item.icon}
                 <span style={{ flex: 1 }}>{item.label}</span>
@@ -144,6 +146,6 @@ export default function Sidebar({ activePage, onNavigate }: Props) {
           </button>
         </div>
       </div>
-    </aside>
+    </aside></>
   )
 }
