@@ -10,6 +10,7 @@ import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type JournalEntry } from '../lib/api'
 import { Spinner, TableSkeletonRows } from '../components/Loading'
+import AccountSelect from '../components/AccountSelect'
 
 interface EntryRow { account: string; dr: number; cr: number }
 interface JournalForm {
@@ -222,7 +223,7 @@ export default function JournalEntries() {
           </div>
 
           {/* DR/CR rows */}
-          <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'visible', marginBottom: 16 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#F8FAFC' }}>
@@ -236,11 +237,11 @@ export default function JournalEntries() {
                 {form.rows.map((row, i) => (
                   <tr key={i} style={{ borderTop: '1px solid #E2E8F0' }}>
                     <td style={{ padding: '8px 14px' }}>
-                      <select className="select" style={{ width: '100%' }} value={row.account}
-                        onChange={e => updateRow(i, 'account', e.target.value)}>
-                        <option value="">Select account…</option>
-                        {accounts.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-                      </select>
+                      <AccountSelect
+                        accounts={accounts}
+                        value={row.account}
+                        onChange={account => updateRow(i, 'account', account)}
+                      />
                     </td>
                     <td style={{ padding: '8px 14px' }}>
                       <input className="input mono" style={{ textAlign: 'right', color: '#059669' }}
@@ -300,14 +301,11 @@ export default function JournalEntries() {
                 <button className="btn btn-primary" style={{ fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry(editingStatus)}>
                   {saving && <Spinner />} {saving ? 'Updating...' : 'Update Entry'}
                 </button>
-              ) : <>
-                <button className="btn" style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry('Draft')}>
-                  {saving && <Spinner />} {saving ? 'Saving...' : 'Save Draft'}
-                </button>
+              ) : (
                 <button className="btn btn-primary" style={{ fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry('Posted')}>
                   {saving && <Spinner />} {saving ? 'Posting...' : 'Post Entry'}
                 </button>
-              </>}
+              )}
             </div>
           </div>
         </div>

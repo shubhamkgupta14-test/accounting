@@ -25,13 +25,25 @@ export default function Ledger({ onNavigate }: Props) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [totalRows, setTotalRows] = useState(0)
+  const [activeAccountNames, setActiveAccountNames] = useState<Set<string>>(new Set())
+  const [loadingAccounts, setLoadingAccounts] = useState(true)
 
-  const selectedName = selected || accounts[0]?.name || ''
-  const account = accounts.find(a => a.name === selectedName) || accounts[0]
-  const filteredAccounts = accounts.filter(a =>
+  const ledgerAccounts = accounts.filter(account => activeAccountNames.has(account.name))
+  const selectedName = ledgerAccounts.some(account => account.name === selected)
+    ? selected
+    : ledgerAccounts[0]?.name || ''
+  const account = ledgerAccounts.find(a => a.name === selectedName)
+  const filteredAccounts = ledgerAccounts.filter(a =>
     a.name.toLowerCase().includes(search.toLowerCase()) ||
     a.group.toLowerCase().includes(search.toLowerCase())
   )
+
+  useEffect(() => {
+    api.ledgerAccounts()
+      .then(result => setActiveAccountNames(new Set(result.accounts)))
+      .catch(() => setActiveAccountNames(new Set()))
+      .finally(() => setLoadingAccounts(false))
+  }, [])
 
   useEffect(() => {
     if (!selectedName) {
@@ -52,13 +64,22 @@ export default function Ledger({ onNavigate }: Props) {
   const totalCr = rows.reduce((s, r) => s + r.cr, 0)
   const closingBalance = account?.balance ?? rows[rows.length - 1]?.balance ?? 0
 
+  if (loadingAccounts) {
+    return (
+      <div>
+        <div className="page-header"><PageIntro id="ledger" /></div>
+        <div className="card empty-state">Loading ledger accounts…</div>
+      </div>
+    )
+  }
+
   if (!account) {
     return (
       <div>
         <div className="page-header">
           <PageIntro id="ledger" />
         </div>
-        <div className="card empty-state">No accounts found. Create accounts in Chart of Accounts first.</div>
+        <div className="card empty-state">No posted journal activity found. Post a journal entry to create ledger data.</div>
       </div>
     )
   }

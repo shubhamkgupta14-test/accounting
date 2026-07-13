@@ -20,7 +20,7 @@ STARTED_AT = datetime.now(UTC)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     print(
-        f"\n🚀 Starting up the {settings.app_name} on env:{settings.env.lower()}...\n")
+        f"\nStarting up the {settings.app_name} on env:{settings.env.lower()}...\n")
     if settings.env.lower() in {"prod", "production"}:
         if settings.jwt_secret == "accounting-local-dev-secret" or len(settings.jwt_secret) < 32:
             raise RuntimeError(

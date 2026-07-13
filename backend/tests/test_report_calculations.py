@@ -26,6 +26,13 @@ def test_ledger_page_one_and_running_balance(client, login):
                     {"account": "Capital", "debit": 25, "credit": 0},
                 ],
             },
+            {
+                "voucher_no": "LEDGER-DRAFT", "date": "2026-08-03", "narration": "Draft entry",
+                "status": "Draft", "entries": [
+                    {"account": "Draft Only Account", "debit": 50, "credit": 0},
+                    {"account": "Sales", "debit": 0, "credit": 50},
+                ],
+            },
         ])
 
     client.portal.call(seed)
@@ -37,6 +44,10 @@ def test_ledger_page_one_and_running_balance(client, login):
     assert first.json()["items"][0]["balance"] == 1100
     assert second.status_code == 200
     assert second.json()["items"][0]["balance"] == 1075
+    account_names = client.get("/api/reports/ledger-accounts")
+    assert account_names.status_code == 200
+    assert "Ledger Test Asset" in account_names.json()["accounts"]
+    assert "Draft Only Account" not in account_names.json()["accounts"]
 
 
 def test_dashboard_chart_matches_net_profit_analysis_rules(client, login):

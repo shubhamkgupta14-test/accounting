@@ -320,6 +320,7 @@ export const api = {
   transactionsPage: (params: PageQuery) => request<PageResponse<BookTransaction>>(`/transactions/page?${queryString(params)}`),
   ledger: (accountName: string) =>
     request<LedgerRow[]>(`/reports/ledger/${encodeURIComponent(accountName)}`),
+  ledgerAccounts: () => request<{ accounts: string[] }>("/reports/ledger-accounts"),
   ledgerPage: (accountName: string, params: PageQuery) => request<PageResponse<LedgerRow>>(`/reports/ledger/${encodeURIComponent(accountName)}/page?${queryString(params)}`),
   dashboard: () => request<{
     stats: { cash: number; bank: number; sales: number; purchases: number; profit: number; pending_vouchers: number };

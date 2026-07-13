@@ -100,6 +100,14 @@ async def trial_balance(_: dict = Depends(get_current_user)):
     }
 
 
+@router.get("/ledger-accounts")
+async def ledger_accounts(_: dict = Depends(get_current_user)):
+    names = await get_database().journal_entries.distinct(
+        "entries.account", {"status": "Posted"}
+    )
+    return {"accounts": sorted(name for name in names if name)}
+
+
 @router.get("/ledger/{account_name}")
 async def ledger(account_name: str, _: dict = Depends(get_current_user)):
     db = get_database()
