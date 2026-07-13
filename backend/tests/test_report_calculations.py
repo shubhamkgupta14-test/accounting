@@ -39,7 +39,7 @@ def test_ledger_page_one_and_running_balance(client, login):
     assert second.json()["items"][0]["balance"] == 1075
 
 
-def test_dashboard_chart_uses_positive_activity(client, login):
+def test_dashboard_chart_matches_net_profit_analysis_rules(client, login):
     login()
 
     async def seed():
@@ -65,5 +65,6 @@ def test_dashboard_chart_uses_positive_activity(client, login):
 
     assert response.status_code == 200
     september = next(row for row in response.json()["monthly"] if row["key"] == "2026-09")
-    assert september["expenses"] == 10
-    assert september["sales"] >= 0
+    assert september["expenses"] == -10
+    assert september["revenue"] >= 0
+    assert september["profit"] == september["revenue"] - september["expenses"]

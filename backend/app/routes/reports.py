@@ -22,7 +22,7 @@ async def dashboard(_: dict = Depends(get_current_user)):
         account["name"] for account in accounts
         if "cash" in account["name"].lower() or account.get("group", "").lower() == "bank"
     }
-    monthly = defaultdict(lambda: {"sales": 0.0, "expenses": 0.0, "inflow": 0.0, "outflow": 0.0})
+    monthly = defaultdict(lambda: {"revenue": 0.0, "expenses": 0.0, "inflow": 0.0, "outflow": 0.0})
     expense_breakdown = defaultdict(float)
     sales = 0.0
     purchases = 0.0
@@ -39,9 +39,9 @@ async def dashboard(_: dict = Depends(get_current_user)):
             if name == "Purchases":
                 purchases += debit
             if account_types.get(name) == "Income":
-                monthly[key]["sales"] += credit
+                monthly[key]["revenue"] += credit - debit
             if account_types.get(name) == "Expense":
-                monthly[key]["expenses"] += debit
+                monthly[key]["expenses"] += debit - credit
                 expense_breakdown[name] += debit
             if name in cash_bank_names:
                 monthly[key]["inflow"] += debit
@@ -68,7 +68,7 @@ async def dashboard(_: dict = Depends(get_current_user)):
             "pending_vouchers": await db.vouchers.count_documents({"status": "Pending"}),
         },
         "recent_journals": serialize_many(journals),
-        "monthly": [{"key": key, **values, "profit": values["sales"] - values["expenses"]} for key, values in sorted(monthly.items())],
+        "monthly": [{"key": key, **values, "profit": values["revenue"] - values["expenses"]} for key, values in sorted(monthly.items())],
         "expense_breakdown": [
             {"name": name, "value": value}
             for name, value in sorted(expense_breakdown.items(), key=lambda item: item[1], reverse=True)[:6]

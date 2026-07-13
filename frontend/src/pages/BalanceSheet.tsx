@@ -52,7 +52,7 @@ export default function BalanceSheet() {
         <PageIntro id="balance-sheet" />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {balanced && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#10B981', fontWeight: 600, background: '#ECFDF5', padding: '6px 12px', borderRadius: 20 }}>
+            <span className="report-status">
               <CheckCircle size={14} /> Balance Sheet Balanced
             </span>
           )}

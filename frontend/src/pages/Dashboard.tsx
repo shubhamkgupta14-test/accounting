@@ -6,13 +6,14 @@ import { useAuth } from '../context/AuthContext'
 import { useAppSettings } from '../context/SettingsContext'
 import PageIntro from '../components/PageIntro'
 import { api, type JournalEntry } from '../lib/api'
+import { PageSkeleton } from '../components/Loading'
 
 interface Props { onNavigate: (page: PageId) => void }
 
 interface DashboardReport {
   stats: { cash: number; bank: number; sales: number; purchases: number; profit: number; pending_vouchers: number }
   recent_journals: JournalEntry[]
-  monthly: { key: string; sales: number; expenses: number; inflow: number; outflow: number; profit: number }[]
+  monthly: { key: string; revenue: number; expenses: number; inflow: number; outflow: number; profit: number }[]
   expense_breakdown: { name: string; value: number }[]
 }
 
@@ -56,12 +57,13 @@ export default function Dashboard({ onNavigate }: Props) {
   const { canWrite } = useAuth()
   const { settings, formatMoney, formatDate, currencySymbol } = useAppSettings()
   const [report, setReport] = useState<DashboardReport>(emptyReport)
+  const [initialLoading, setInitialLoading] = useState(true)
   const refreshing = useRef(false)
   const refresh = useCallback(async () => {
     if (refreshing.current) return
     refreshing.current = true
     try { setReport(await api.dashboard()) }
-    finally { refreshing.current = false }
+    finally { refreshing.current = false; setInitialLoading(false) }
   }, [])
   useEffect(() => {
     void refresh().catch(() => undefined)
@@ -81,6 +83,8 @@ export default function Dashboard({ onNavigate }: Props) {
   const expenseBreakdown = report.expense_breakdown.map((entry, index) => ({ ...entry, color: expenseColors[index % expenseColors.length] }))
   const monthlyRevenue = report.monthly.map(row => ({ ...row, month: new Date(`${row.key}-01T00:00:00`).toLocaleString('en-IN', { month: 'short', year: '2-digit' }) }))
   const cashflowData = monthlyRevenue
+
+  if (initialLoading) return <PageSkeleton cards={5} columns={6} rows={5} />
 
   return (
     <div>
@@ -105,7 +109,6 @@ export default function Dashboard({ onNavigate }: Props) {
             <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 1, width: 38, height: 38, borderRadius: 10, background: s.background, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {s.icon}
             </div>
-            <div style={{ position: 'absolute', right: -18, bottom: -22, width: 70, height: 70, borderRadius: '50%', background: s.background, opacity: 0.55 }} />
           </div>
         ))}
       </div>
@@ -121,7 +124,7 @@ export default function Dashboard({ onNavigate }: Props) {
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: '#94A3B8', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v, currencySymbol, true)} />
                 <Tooltip content={<CustomTooltip currencySymbol={currencySymbol} />} />
-                <Area type="monotone" dataKey="sales" stroke="#2563EB" strokeWidth={2} fill="#EFF6FF" name="Sales" dot={false} />
+                <Area type="monotone" dataKey="revenue" stroke="#2563EB" strokeWidth={2} fill="#EFF6FF" name="Revenue" dot={false} />
                 <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} fill="#FEF2F2" name="Expenses" dot={false} />
               </AreaChart>
             </ResponsiveContainer>

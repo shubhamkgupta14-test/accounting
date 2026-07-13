@@ -9,6 +9,7 @@ import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type Voucher } from '../lib/api'
+import { Spinner, TableSkeletonRows } from '../components/Loading'
 
 type VoucherType = 'Payment' | 'Receipt' | 'Contra' | 'Sales' | 'Purchase' | 'Journal'
 
@@ -72,6 +73,7 @@ export default function Vouchers() {
   const [totalVouchers, setTotalVouchers] = useState(0)
   const [typeCounts, setTypeCounts] = useState<Record<string, number>>({})
   const [reloadKey, setReloadKey] = useState(0)
+  const [loadingRows, setLoadingRows] = useState(true)
   const [form, setForm] = useState({
     voucher_no: '',
     date: new Date().toISOString().slice(0, 10),
@@ -115,6 +117,7 @@ export default function Vouchers() {
   const paged = filtered
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setLoadingRows(true)
       const [sort_by, sort_order] = sortBy === 'amount-desc' ? ['amount', 'desc'] : ['date', sortBy === 'date-asc' ? 'asc' : 'desc']
       Promise.all([
         api.vouchersPage({ page, page_size: pageSize, search, type: typeFilter === 'All' ? undefined : typeFilter, sort_by, sort_order }),
@@ -123,7 +126,7 @@ export default function Vouchers() {
         setFiltered(result.items.map(row => ({ ...row, backendId: row.id, id: row.voucher_no, voucherNo: row.voucher_no })))
         setTotalVouchers(result.total)
         setTypeCounts(stats.by_type)
-      }).catch(() => { setFiltered([]); setTotalVouchers(0) })
+      }).catch(() => { setFiltered([]); setTotalVouchers(0) }).finally(() => setLoadingRows(false))
     }, 250)
     return () => window.clearTimeout(timer)
   }, [page, pageSize, reloadKey, search, sortBy, typeFilter])
@@ -178,7 +181,7 @@ export default function Vouchers() {
           {error && <div style={{ marginTop: 12, color: '#B91C1C', fontSize: 12.5 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
             <button className="btn btn-secondary" disabled={saving} onClick={() => setShowForm(false)}>Cancel</button>
-            <button className="btn btn-primary" disabled={saving} onClick={saveVoucher}>{saving ? 'Saving...' : 'Save Voucher'}</button>
+            <button className="btn btn-primary" disabled={saving} onClick={saveVoucher}>{saving && <Spinner />} {saving ? 'Saving...' : 'Save Voucher'}</button>
           </div>
         </div>
       )}
@@ -210,7 +213,8 @@ export default function Vouchers() {
           <table className="data-table">
             <thead><tr><th>Voucher ID</th><th>Date</th><th>Type</th><th>Party / Account</th><th>Mode</th><th className="num">Amount ({currencySymbol})</th><th>Status</th><th>Narration</th><th style={{ textAlign: 'center' }}>Action</th></tr></thead>
             <tbody>
-              {paged.map(v => (
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={9} />}
+              {!loadingRows && paged.map(v => (
                 <tr key={v.id}>
                   <td><span className="mono" style={{ fontSize: 12.5, color: '#2563EB', fontWeight: 500 }}>{v.id}</span></td>
                   <td className="date-cell"><span className="mono" style={{ fontSize: 12.5 }}>{formatDate(v.date)}</span></td>

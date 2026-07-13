@@ -216,6 +216,21 @@ body {
   margin-top: 6px;
 }
 
+.report-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #a7f3d0;
+  border-radius: 6px;
+  background: #ecfdf5;
+  color: #059669;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Badge / chip */
 .badge {
   display: inline-flex;
@@ -619,11 +634,33 @@ body {
 
 .app-loading {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
   color: var(--muted-foreground);
   font-weight: 600;
 }
+
+.skeleton {
+  background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 45%, #eef2f7 65%);
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.35s ease-in-out infinite;
+}
+.skeleton-card-grid { display: grid; gap: 14px; margin-bottom: 20px; }
+.skeleton-toolbar { display: flex; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.skeleton-table-row:hover td { background: transparent !important; }
+.loading-spinner {
+  display: inline-block;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spinner-rotate .7s linear infinite;
+}
+@keyframes skeleton-shimmer { to { background-position-x: -220%; } }
+@keyframes spinner-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .skeleton, .loading-spinner { animation: none; } }
 
 .auth-page {
   min-height: 100vh;

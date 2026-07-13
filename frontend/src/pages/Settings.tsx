@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { downloadJson, exportRowsAsExcel } from '../lib/export'
 import { useAppSettings } from '../context/SettingsContext'
 import PasswordInput from '../components/PasswordInput'
+import { SettingsSkeleton } from '../components/Loading'
 
 type Tab = 'company' | 'profile' | 'security' | 'notifications' | 'data' | 'fiscal'
 
@@ -23,7 +24,7 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState<Tab>('profile')
   const { showToast } = useToast()
   const { user, updateProfile } = useAuth()
-  const { settings, reload } = useAppSettings()
+  const { settings, loading: settingsLoading, reload } = useAppSettings()
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
   const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '' })
   const [company, setCompany] = useState<CompanySettings>(settings.company)
@@ -71,6 +72,8 @@ export default function Settings() {
     try { await api.updateNotificationSettings(next); await reload(); showToast('success', 'Notification preference saved.') }
     catch (err) { setNotifications(notifications); showToast('error', err instanceof Error ? err.message : 'Unable to save preference.') }
   }
+
+  if (settingsLoading) return <SettingsSkeleton />
 
   return (
     <div>

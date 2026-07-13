@@ -5,6 +5,7 @@ import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type JournalEntry } from '../lib/api'
+import { DayBookSkeleton } from '../components/Loading'
 
 
 export default function DayBook() {
@@ -16,6 +17,7 @@ export default function DayBook() {
   const [pageSize, setPageSize] = useState(10)
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -23,7 +25,7 @@ export default function DayBook() {
         .then(result => {
           setEntries(result.items.map(row => ({ ...row, voucherNo: row.voucher_no, entries: row.entries.map(line => ({ ...line, dr: line.debit, cr: line.credit })) })))
           setTotal(result.total)
-        })
+        }).finally(() => setLoading(false))
     }, 250)
     return () => window.clearTimeout(timer)
   }, [dateFrom, dateTo, page, pageSize, search])
@@ -38,6 +40,8 @@ export default function DayBook() {
     acc[e.date].push(e)
     return acc
   }, {})
+
+  if (loading) return <DayBookSkeleton />
 
   return (
     <div>

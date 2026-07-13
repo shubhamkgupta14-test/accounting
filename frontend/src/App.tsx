@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import { DataProvider } from './context/DataContext'
+import { DataProvider, useLedgerData } from './context/DataContext'
 import { ToastProvider } from './context/ToastContext'
 import { SettingsProvider } from './context/SettingsContext'
 import { appName } from './config/app'
@@ -9,6 +9,7 @@ import Header from './components/Header'
 import SignIn from './pages/SignIn'
 import { ContentProvider } from './context/ContentContext'
 import PageFooter from './components/PageFooter'
+import { PageSkeletonFor, Spinner } from './components/Loading'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const JournalEntries = lazy(() => import('./pages/JournalEntries'))
@@ -39,12 +40,19 @@ export type PageId =
   | 'notifications' | 'user-management' | 'clean-db'
   | 'account-summary' | 'profit-analysis' | 'cash-flow-report'
 
+function DataLoadingGate({ page, children }: { page: PageId; children: React.ReactNode }) {
+  const { loading } = useLedgerData()
+  const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
+  if (loading && waitsForSharedData) return <PageSkeletonFor page={page} />
+  return children
+}
+
 function AppShell() {
   const [activePage, setActivePage] = useState<PageId>('dashboard')
   const { user, loading } = useAuth()
 
   if (loading) {
-    return <div className="app-loading">Loading {appName}...</div>
+    return <div className="app-loading"><Spinner size={20} /> Loading {appName}...</div>
   }
 
   if (!user) {
@@ -73,13 +81,12 @@ function AppShell() {
     'profit-analysis': <ProfitAnalysis />,
     'cash-flow-report': <CashFlowReport />,
   }
-
   return (
     <DataProvider activePage={activePage}>
       <Sidebar activePage={activePage} onNavigate={setActivePage} />
       <Header activePage={activePage} onNavigate={setActivePage} />
       <main className="main-content">
-        <Suspense fallback={<div className="app-loading">Loading page...</div>}>{pages[activePage]}</Suspense>
+        <DataLoadingGate page={activePage}><Suspense fallback={<PageSkeletonFor page={activePage} />}>{pages[activePage]}</Suspense></DataLoadingGate>
         <PageFooter />
       </main>
     </DataProvider>

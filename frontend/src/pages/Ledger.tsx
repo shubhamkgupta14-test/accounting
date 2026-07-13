@@ -8,6 +8,7 @@ import ExportMenu from '../components/ExportMenu'
 import PageIntro from '../components/PageIntro'
 import TablePagination from '../components/TablePagination'
 import { useAppSettings } from '../context/SettingsContext'
+import { TableSkeletonRows } from '../components/Loading'
 
 interface Props {
   onNavigate?: (page: PageId) => void
@@ -153,7 +154,8 @@ export default function Ledger({ onNavigate }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
+                {loading && <TableSkeletonRows rows={pageSize} columns={7} />}
+                {!loading && rows.map((r, i) => (
                   <tr key={`${r.voucherNo}-${i}`}>
                     <td className="date-cell"><span className="mono" style={{ fontSize: 12.5 }}>{formatDate(r.date)}</span></td>
                     <td><span className="narration-text">{r.particulars}</span></td>

@@ -9,15 +9,20 @@ const fallback: AppSettings = {
   notifications: { pending_vouchers: true, daily_digest: true, low_balance: true, gst_reminders: true, journal_posted: true },
 }
 
-const SettingsContext = createContext({ settings: fallback, reload: async () => {}, formatMoney: (value: number) => `₹${value.toLocaleString('en-IN')}`, formatDate: (value: string) => value, currencySymbol: '₹' })
+const SettingsContext = createContext({ settings: fallback, loading: true, reload: async () => {}, formatMoney: (value: number) => `₹${value.toLocaleString('en-IN')}`, formatDate: (value: string) => value, currencySymbol: '₹' })
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const [settings, setSettings] = useState(fallback)
+  const [loading, setLoading] = useState(true)
   const reload = async () => { if (user) setSettings(await api.settings()) }
-  useEffect(() => { void reload() }, [user])
+  useEffect(() => {
+    if (!user) { setLoading(false); return }
+    setLoading(true)
+    api.settings().then(setSettings).catch(() => undefined).finally(() => setLoading(false))
+  }, [user])
   const formatMoney = (value: number) => new Intl.NumberFormat('en-IN', {
-    style: 'currency', currency: settings.fiscal.currency || 'INR', maximumFractionDigits: 2,
+    style: 'currency', currency: settings.fiscal.currency || 'INR', minimumFractionDigits: 0, maximumFractionDigits: 0,
   }).format(value)
   const currencySymbol = new Intl.NumberFormat('en-IN', { style: 'currency', currency: settings.fiscal.currency || 'INR' }).formatToParts(0).find(part => part.type === 'currency')?.value || settings.fiscal.currency
   const formatDate = (value: string) => {
@@ -27,7 +32,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     if (settings.fiscal.date_format === 'YYYY-MM-DD') return `${year}-${month}-${day}`
     return `${day}/${month}/${year}`
   }
-  return <SettingsContext.Provider value={{ settings, reload, formatMoney, formatDate, currencySymbol }}>{children}</SettingsContext.Provider>
+  return <SettingsContext.Provider value={{ settings, loading, reload, formatMoney, formatDate, currencySymbol }}>{children}</SettingsContext.Provider>
 }
 
 export const useAppSettings = () => useContext(SettingsContext)

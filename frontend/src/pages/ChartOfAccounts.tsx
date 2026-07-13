@@ -8,6 +8,7 @@ import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type Account } from '../lib/api'
+import { Spinner, TableSkeletonRows } from '../components/Loading'
 
 type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
 
@@ -49,6 +50,7 @@ export default function ChartOfAccounts() {
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<{ total: number; by_type: Record<string, number>; groups: string[] }>({ total: 0, by_type: {}, groups: [] })
   const [reloadKey, setReloadKey] = useState(0)
+  const [loadingRows, setLoadingRows] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -137,6 +139,7 @@ export default function ChartOfAccounts() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setLoadingRows(true)
       void Promise.all([
         api.accountsPage({
           page,
@@ -152,7 +155,7 @@ export default function ChartOfAccounts() {
         setRows(result.items.map(row => ({ ...row, backendId: row.id, id: row.code })))
         setTotal(result.total)
         setStats(accountStats)
-      }).catch(error => showToast('error', error instanceof Error ? error.message : 'Unable to load accounts.'))
+      }).catch(error => showToast('error', error instanceof Error ? error.message : 'Unable to load accounts.')).finally(() => setLoadingRows(false))
     }, 250)
     return () => window.clearTimeout(timer)
   }, [groupFilter, page, pageSize, reloadKey, search, showToast, sortBy, typeFilter])
@@ -220,7 +223,7 @@ export default function ChartOfAccounts() {
           {error && <div style={{ marginTop: 12, color: '#B91C1C', fontSize: 12.5 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
             <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-            <button className="btn btn-primary" disabled={saving} onClick={saveAccount}>{saving ? 'Saving...' : editingId ? 'Update Ledger Account' : 'Save Ledger Account'}</button>
+            <button className="btn btn-primary" disabled={saving} onClick={saveAccount}>{saving && <Spinner />} {saving ? 'Saving...' : editingId ? 'Update Ledger Account' : 'Save Ledger Account'}</button>
           </div>
         </div>
       )}
@@ -278,7 +281,8 @@ export default function ChartOfAccounts() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(a => (
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 6 : 5} />}
+              {!loadingRows && rows.map(a => (
                 <tr key={a.id}>
                   <td><span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{a.id}</span></td>
                   <td style={{ fontWeight: 500 }}>{a.name}</td>
@@ -303,7 +307,7 @@ export default function ChartOfAccounts() {
                   )}
                 </tr>
               ))}
-              {rows.length === 0 && (
+              {!loadingRows && rows.length === 0 && (
                 <tr>
                   <td colSpan={canWrite || canManageUsers ? 6 : 5}>
                     <div className="empty-state" style={{ padding: '36px 20px' }}>

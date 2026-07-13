@@ -4,14 +4,19 @@ import { api, type Notification } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
+import { NotificationsSkeleton } from '../components/Loading'
 
 export default function NotificationCenter() {
   const { canManageUsers } = useAuth()
   const { showToast } = useToast()
   const [items, setItems] = useState<Notification[]>([])
   const [form, setForm] = useState({ title: '', message: '', audience: 'all' })
+  const [loading, setLoading] = useState(true)
 
-  const load = async () => setItems(await api.notifications())
+  const load = async () => {
+    try { setItems(await api.notifications()) }
+    finally { setLoading(false) }
+  }
 
   useEffect(() => { void load() }, [])
 
@@ -25,6 +30,8 @@ export default function NotificationCenter() {
       showToast('error', err instanceof Error ? err.message : 'Unable to send notification.')
     }
   }
+
+  if (loading) return <NotificationsSkeleton />
 
   return (
     <div>

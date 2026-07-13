@@ -13,13 +13,19 @@ export default function Header({ activePage, onNavigate }: Props) {
   const initials = `${user?.first_name?.[0] || 'F'}${user?.last_name?.[0] || 'L'}`.toUpperCase()
   const name = user ? `${user.first_name} ${user.last_name}` : 'First Last'
   const role = user?.role === 'superadmin' ? 'Superadmin' : user?.role === 'admin' ? 'Admin' : 'View only'
+  const reportPages: PageId[] = ['trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'cashbook', 'bankbook', 'ledger', 'daybook', 'account-summary', 'profit-analysis', 'cash-flow-report']
+  const isReport = reportPages.includes(activePage)
+  const crumbStyle = { border: 0, background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: 'inherit' } as const
 
   return (
     <header className="top-header">
       {/* Brand and current page breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.01em' }}>{settings.company.company_name}</span>
-        <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>/ {pageContent.title}</span>
+        <button type="button" style={{ ...crumbStyle, fontSize: 15, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.01em' }} onClick={() => onNavigate('dashboard')}>
+          {settings.company.company_name}
+        </button>
+        {isReport && <><span style={{ color: '#CBD5E1' }}>/</span><button type="button" style={{ ...crumbStyle, fontSize: 12.5, color: '#475569', fontWeight: 500 }} onClick={() => onNavigate('reports')}>Reports</button></>}
+        {activePage !== 'dashboard' && <><span style={{ color: '#CBD5E1' }}>/</span><span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 400 }}>{pageContent.title}</span></>}
       </div>
 
       {/* Right actions */}

@@ -303,7 +303,7 @@ export const api = {
   dashboard: () => request<{
     stats: { cash: number; bank: number; sales: number; purchases: number; profit: number; pending_vouchers: number };
     recent_journals: JournalEntry[];
-    monthly: { key: string; sales: number; expenses: number; inflow: number; outflow: number; profit: number }[];
+    monthly: { key: string; revenue: number; expenses: number; inflow: number; outflow: number; profit: number }[];
     expense_breakdown: { name: string; value: number }[];
   }>("/reports/dashboard"),
   notifications: () => request<Notification[]>("/notifications"),
