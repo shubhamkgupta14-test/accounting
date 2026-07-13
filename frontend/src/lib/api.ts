@@ -108,6 +108,11 @@ export interface JournalCreatePayload {
   }>;
 }
 
+export type VoucherWritePayload = Pick<
+  Voucher,
+  "voucher_no" | "date" | "type" | "party" | "amount" | "mode" | "narration"
+>;
+
 export interface Notification {
   id: string;
   title: string;
@@ -286,6 +291,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  updateJournal: (id: string, payload: JournalCreatePayload) =>
+    request<JournalEntry>(`/journal-entries/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteJournal: (id: string) =>
+    request<void>(`/journal-entries/${id}`, { method: "DELETE" }),
   vouchers: () => request<Voucher[]>("/vouchers"),
   vouchersPage: (params: PageQuery) => request<PageResponse<Voucher>>(`/vouchers/page?${queryString(params)}`),
   voucherStats: () => request<{ total: number; by_type: Record<string, number> }>("/vouchers/stats"),
@@ -294,6 +306,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  updateVoucher: (id: string, payload: VoucherWritePayload) =>
+    request<Voucher>(`/vouchers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteVoucher: (id: string) =>
+    request<void>(`/vouchers/${id}`, { method: "DELETE" }),
   approveVoucher: (id: string) =>
     request<Voucher>(`/vouchers/${id}/approve`, { method: "PATCH" }),
   transactions: (book?: "cash" | "bank") =>

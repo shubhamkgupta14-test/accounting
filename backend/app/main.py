@@ -29,6 +29,7 @@ async def lifespan(_: FastAPI):
             raise RuntimeError("COOKIE_SECURE must be enabled in production")
     await connect_to_mongo()
     await ensure_indexes()
+    await content.ensure_default_content()
     # await main()
     try:
         yield

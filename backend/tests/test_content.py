@@ -35,6 +35,15 @@ def test_superadmin_can_update_many_pages_and_footer(client, login):
     assert content["pages"]["reports"]["title"] == "Financial Reports"
     assert content["footer"] == "Custom accounting footer"
 
+    async def initialize_again():
+        from app.routes.content import ensure_default_content
+        await ensure_default_content()
+
+    client.portal.call(initialize_again)
+    content = client.get("/api/content").json()
+    assert content["pages"]["dashboard"]["title"] == "Overview"
+    assert content["footer"] == "Custom accounting footer"
+
 
 def test_content_update_rejects_duplicate_or_unknown_pages(client, login):
     login("superadmin")

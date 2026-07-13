@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Plus, Trash2, Search, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { Fragment, useEffect, useState } from 'react'
+import { Plus, Trash2, Search, ChevronDown, ChevronUp, X, Pencil } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -29,6 +29,8 @@ export default function JournalEntries() {
   const { canWrite } = useAuth()
   const { showToast } = useToast()
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingStatus, setEditingStatus] = useState<'Draft' | 'Posted'>('Draft')
   const [form, setForm] = useState<JournalForm>(emptyForm(0))
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -84,6 +86,46 @@ export default function JournalEntries() {
   const updateRow = (i: number, field: keyof EntryRow, value: string | number) =>
     setForm(f => ({ ...f, rows: f.rows.map((r, idx) => idx === i ? { ...r, [field]: value } : r) }))
 
+  const openCreateForm = () => {
+    setEditingId(null)
+    setEditingStatus('Draft')
+    setForm(emptyForm(totalEntries))
+    setError('')
+    setShowForm(true)
+  }
+
+  const openEditForm = (entry: JournalEntry) => {
+    setEditingId(entry.id)
+    setEditingStatus(entry.status)
+    setForm({
+      date: entry.date.slice(0, 10),
+      voucherNo: entry.voucherNo || entry.voucher_no,
+      narration: entry.narration,
+      rows: entry.entries.map(line => ({
+        account: line.account,
+        dr: Number(line.debit ?? line.dr) || 0,
+        cr: Number(line.credit ?? line.cr) || 0,
+      })),
+    })
+    setError('')
+    setShowForm(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const deleteEntry = async (entry: JournalEntry) => {
+    const voucherNo = entry.voucherNo || entry.voucher_no
+    if (!window.confirm(`Delete journal entry ${voucherNo}? This action cannot be undone.`)) return
+    try {
+      await api.deleteJournal(entry.id)
+      if (expanded === entry.id) setExpanded(null)
+      if (filtered.length === 1 && page > 1) setPage(current => current - 1)
+      else setReloadKey(key => key + 1)
+      showToast('success', `Journal entry ${voucherNo} deleted successfully.`)
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to delete journal entry.')
+    }
+  }
+
   const saveEntry = async (status: 'Draft' | 'Posted') => {
     if (!canSubmit) {
       const message = 'Select at least two valid account rows, enter narration, and make sure debit and credit totals match.'
@@ -94,17 +136,20 @@ export default function JournalEntries() {
     setSaving(true)
     setError('')
     try {
-      await createJournal({
+      const payload = {
         date: form.date,
         voucher_no: form.voucherNo,
         narration: form.narration.trim(),
         status,
         entries: filledRows.map(row => ({ account: row.account.trim(), debit: Number(row.dr) || 0, credit: Number(row.cr) || 0 })),
-      })
+      }
+      if (editingId) await api.updateJournal(editingId, payload)
+      else await createJournal(payload)
       setShowForm(false)
+      setEditingId(null)
       setForm(emptyForm(totalEntries + 1))
       setReloadKey(key => key + 1)
-      showToast('success', status === 'Posted' ? 'Journal entry posted successfully.' : 'Journal entry saved as draft.')
+      showToast('success', editingId ? 'Journal entry updated successfully.' : status === 'Posted' ? 'Journal entry posted successfully.' : 'Journal entry saved as draft.')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to save journal entry.'
       setError(message)
@@ -128,7 +173,7 @@ export default function JournalEntries() {
             status: row.status,
           }))} />
           {canWrite && (
-            <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => { setShowForm(true); setForm(emptyForm(totalEntries)); setError('') }}>
+            <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={openCreateForm}>
               <Plus size={14} /> New Entry
             </button>
           )}
@@ -139,8 +184,8 @@ export default function JournalEntries() {
       {showForm && (
         <div className="card" style={{ marginBottom: 20, padding: '20px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>New Journal Entry</h3>
-            <button className="btn btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowForm(false)}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{editingId ? 'Edit Journal Entry' : 'New Journal Entry'}</h3>
+            <button className="btn btn-ghost" style={{ padding: '4px 8px' }} onClick={() => { setShowForm(false); setEditingId(null) }}>
               <X size={16} />
             </button>
           </div>
@@ -250,13 +295,19 @@ export default function JournalEntries() {
               )}
               {balanced && <span style={{ fontSize: 12, color: '#10B981', fontWeight: 500 }}>✓ Balanced</span>}
               {error && <span style={{ fontSize: 12, color: '#B91C1C', maxWidth: 360 }}>{error}</span>}
-              <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancel</button>
-              <button className="btn" style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry('Draft')}>
-                {saving && <Spinner />} {saving ? 'Saving...' : 'Save Draft'}
-              </button>
-              <button className="btn btn-primary" style={{ fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry('Posted')}>
-                {saving && <Spinner />} {saving ? 'Posting...' : 'Post Entry'}
-              </button>
+              <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null) }}>Cancel</button>
+              {editingId ? (
+                <button className="btn btn-primary" style={{ fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry(editingStatus)}>
+                  {saving && <Spinner />} {saving ? 'Updating...' : 'Update Entry'}
+                </button>
+              ) : <>
+                <button className="btn" style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry('Draft')}>
+                  {saving && <Spinner />} {saving ? 'Saving...' : 'Save Draft'}
+                </button>
+                <button className="btn btn-primary" style={{ fontSize: 13 }} disabled={!canSubmit || saving} onClick={() => saveEntry('Posted')}>
+                  {saving && <Spinner />} {saving ? 'Posting...' : 'Post Entry'}
+                </button>
+              </>}
             </div>
           </div>
         </div>
@@ -290,16 +341,17 @@ export default function JournalEntries() {
                 <th className="num dr-heading">Debit ({currencySymbol})</th>
                 <th className="num cr-heading">Credit ({currencySymbol})</th>
                 <th>Status</th>
+                {canWrite && <th style={{ textAlign: 'center' }}>Action</th>}
               </tr>
             </thead>
             <tbody>
-              {loadingRows && <TableSkeletonRows rows={pageSize} columns={7} />}
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite ? 9 : 8} />}
               {!loadingRows && paged.map(e => {
                 const dr = e.entries.reduce((s, r) => s + r.dr, 0)
                 const cr = e.entries.reduce((s, r) => s + r.cr, 0)
                 const isOpen = expanded === e.id
                 return (
-                  <>
+                  <Fragment key={e.id}>
                     <tr key={e.id} style={{ cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : e.id)}>
                       <td style={{ width: 32, minWidth: 32, padding: '8px 4px', textAlign: 'center', color: '#94A3B8' }}>
                         {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -311,10 +363,14 @@ export default function JournalEntries() {
                       <td className="num dr-amount">{dr.toLocaleString('en-IN')}</td>
                       <td className="num cr-amount">{cr.toLocaleString('en-IN')}</td>
                       <td><span className={`badge ${e.status === 'Posted' ? 'badge-green' : 'badge-amber'}`}>{e.status}</span></td>
+                      {canWrite && <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={event => event.stopPropagation()}>
+                        <button className="btn btn-ghost" style={{ padding: 6 }} title="Edit journal entry" aria-label="Edit journal entry" onClick={() => openEditForm(e)}><Pencil size={14} /></button>
+                        <button className="btn btn-ghost" style={{ padding: 6, color: '#DC2626' }} title="Delete journal entry" aria-label="Delete journal entry" onClick={() => void deleteEntry(e)}><Trash2 size={14} /></button>
+                      </td>}
                     </tr>
                     {isOpen && (
                       <tr key={`${e.id}-detail`} style={{ background: '#F8FAFC' }}>
-                        <td colSpan={8} style={{ padding: '0 20px 12px 44px' }}>
+                        <td colSpan={canWrite ? 9 : 8} style={{ padding: '0 20px 12px 44px' }}>
                           <table style={{ width: '60%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                             <thead>
                               <tr>
@@ -336,7 +392,7 @@ export default function JournalEntries() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
             </tbody>

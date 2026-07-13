@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Eye, CheckCircle, Clock } from 'lucide-react'
+import { Plus, Search, Eye, CheckCircle, Clock, Pencil, Trash2 } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
@@ -67,6 +67,7 @@ export default function Vouchers() {
   const [pageSize, setPageSize] = useState(10)
   const [selected, setSelected] = useState<any | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [filtered, setFiltered] = useState<Voucher[]>([])
@@ -86,9 +87,42 @@ export default function Vouchers() {
   })
 
   const openForm = () => {
+    setEditingId(null)
     setForm({ voucher_no: `V-${String(totalVouchers + 1).padStart(3, '0')}`, date: new Date().toISOString().slice(0, 10), type: 'Payment', party: '', amount: 0, mode: '', narration: '', status: 'Pending' })
     setError('')
     setShowForm(true)
+  }
+
+  const openEditForm = (voucher: Voucher) => {
+    setEditingId(voucher.backendId || voucher.id)
+    setForm({
+      voucher_no: voucher.voucherNo || voucher.voucher_no,
+      date: voucher.date.slice(0, 10),
+      type: voucher.type,
+      party: voucher.party,
+      amount: voucher.amount,
+      mode: voucher.mode,
+      narration: voucher.narration,
+      status: 'Pending',
+    })
+    setError('')
+    setShowForm(true)
+    setSelected(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const deleteVoucher = async (voucher: Voucher) => {
+    const voucherNo = voucher.voucherNo || voucher.voucher_no
+    if (!window.confirm(`Delete voucher ${voucherNo}? This action cannot be undone.`)) return
+    try {
+      await api.deleteVoucher(voucher.backendId || voucher.id)
+      if (selected?.backendId === voucher.backendId) setSelected(null)
+      if (filtered.length === 1 && page > 1) setPage(current => current - 1)
+      else setReloadKey(key => key + 1)
+      showToast('success', `Voucher ${voucherNo} deleted successfully.`)
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to delete voucher.')
+    }
   }
 
   const saveVoucher = async () => {
@@ -101,10 +135,21 @@ export default function Vouchers() {
     setSaving(true)
     setError('')
     try {
-      await createVoucher({ ...form, voucher_no: form.voucher_no.trim(), party: form.party.trim(), mode: form.mode.trim(), narration: form.narration.trim() })
+      const payload = {
+        voucher_no: form.voucher_no.trim(),
+        date: form.date,
+        type: form.type,
+        party: form.party.trim(),
+        amount: form.amount,
+        mode: form.mode.trim(),
+        narration: form.narration.trim(),
+      }
+      if (editingId) await api.updateVoucher(editingId, payload)
+      else await createVoucher({ ...payload, status: 'Pending' })
       setShowForm(false)
+      setEditingId(null)
       setReloadKey(key => key + 1)
-      showToast('success', 'Voucher created successfully.')
+      showToast('success', editingId ? 'Voucher updated successfully.' : 'Voucher created successfully.')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to create voucher.'
       setError(message)
@@ -150,7 +195,7 @@ export default function Vouchers() {
 
       {showForm && (
         <div className="card" style={{ padding: '20px 24px', marginBottom: 20 }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>Create Voucher</h3>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>{editingId ? 'Edit Voucher' : 'Create Voucher'}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.5fr 1fr', gap: 14, marginBottom: 14 }}>
             <div><label className="form-label required">Voucher No.</label><input className="input" value={form.voucher_no} onChange={e => setForm(f => ({ ...f, voucher_no: e.target.value }))} /></div>
             <div><label className="form-label required">Date</label><input className="input" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
@@ -180,8 +225,8 @@ export default function Vouchers() {
           </div>
           {error && <div style={{ marginTop: 12, color: '#B91C1C', fontSize: 12.5 }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-            <button className="btn btn-secondary" disabled={saving} onClick={() => setShowForm(false)}>Cancel</button>
-            <button className="btn btn-primary" disabled={saving} onClick={saveVoucher}>{saving && <Spinner />} {saving ? 'Saving...' : 'Save Voucher'}</button>
+            <button className="btn btn-secondary" disabled={saving} onClick={() => { setShowForm(false); setEditingId(null) }}>Cancel</button>
+            <button className="btn btn-primary" disabled={saving} onClick={saveVoucher}>{saving && <Spinner />} {saving ? 'Saving...' : editingId ? 'Update Voucher' : 'Save Voucher'}</button>
           </div>
         </div>
       )}
@@ -224,7 +269,13 @@ export default function Vouchers() {
                   <td className="num" style={{ fontWeight: 600 }}>{v.amount.toLocaleString('en-IN')}</td>
                   <td><span className={`badge ${v.status === 'Approved' ? 'badge-green' : 'badge-amber'}`}>{v.status === 'Approved' ? <CheckCircle size={10} /> : <Clock size={10} />} {v.status}</span></td>
                   <td style={{ maxWidth: 200 }}><span className="truncate narration-text" style={{ display: 'block' }}>{v.narration}</span></td>
-                  <td style={{ textAlign: 'center' }}><button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => setSelected(v)}><Eye size={13} /> View</button></td>
+                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-ghost" style={{ padding: 6 }} title="View voucher" aria-label="View voucher" onClick={() => setSelected(v)}><Eye size={14} /></button>
+                    {canWrite && <>
+                      <button className="btn btn-ghost" style={{ padding: 6 }} title="Edit voucher" aria-label="Edit voucher" onClick={() => openEditForm(v)}><Pencil size={14} /></button>
+                      <button className="btn btn-ghost" style={{ padding: 6, color: '#DC2626' }} title="Delete voucher" aria-label="Delete voucher" onClick={() => void deleteVoucher(v)}><Trash2 size={14} /></button>
+                    </>}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && <tr><td colSpan={9}><div className="empty-state" style={{ padding: '36px 20px' }}>No vouchers found.</div></td></tr>}

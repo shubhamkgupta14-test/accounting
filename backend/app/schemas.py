@@ -96,6 +96,16 @@ class VoucherCreate(BaseModel):
     status: VoucherStatus = "Pending"
 
 
+class VoucherUpdate(BaseModel):
+    voucher_no: str = Field(min_length=1, max_length=100)
+    date: date
+    type: VoucherType
+    party: str = Field(min_length=1, max_length=200)
+    amount: float = Field(gt=0, allow_inf_nan=False)
+    mode: str = Field(min_length=1, max_length=100)
+    narration: str = Field(max_length=2000)
+
+
 class TransactionCreate(BaseModel):
     book: BookType
     date: date

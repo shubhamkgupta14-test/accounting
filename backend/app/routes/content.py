@@ -40,10 +40,25 @@ class ContentUpdate(BaseModel):
     description: str = Field(min_length=1, max_length=1000)
 
 
+async def ensure_default_content() -> None:
+    defaults = {
+        **PAGE_CONTENT,
+        "footer": {"title": "", "description": DEFAULT_FOOTER},
+    }
+    await get_database().page_content.bulk_write([
+        UpdateOne(
+            {"_id": page},
+            {"$setOnInsert": values},
+            upsert=True,
+        )
+        for page, values in defaults.items()
+    ])
+
+
 async def _content_response():
     saved = await get_database().page_content.find({}).to_list(length=None)
-    pages = {page: dict(values) for page, values in PAGE_CONTENT.items()}
-    footer = DEFAULT_FOOTER
+    pages = {}
+    footer = ""
     for item in saved:
         page = item["_id"]
         if page == "footer":
@@ -56,9 +71,9 @@ async def _content_response():
 @router.get("/login")
 async def get_login_content():
     saved = await get_database().page_content.find_one({"_id": "login"})
-    login = PAGE_CONTENT["login"]
-    if saved:
-        login = {"title": saved["title"], "description": saved["description"]}
+    if not saved:
+        raise HTTPException(status_code=503, detail="Login content is not initialized")
+    login = {"title": saved["title"], "description": saved["description"]}
     return {"pages": {"login": login}, "footer": ""}
 
 

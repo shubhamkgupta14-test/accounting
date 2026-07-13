@@ -7,7 +7,7 @@ from pymongo import ReturnDocument
 
 from app.core.database import get_database
 from app.dependencies import get_current_user, require_roles
-from app.schemas import VoucherCreate
+from app.schemas import VoucherCreate, VoucherUpdate
 from app.utils import object_id, serialize_doc, serialize_many
 from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
 
@@ -59,6 +59,47 @@ async def create_voucher(payload: VoucherCreate, current_user=Depends(require_ro
     doc["created_at"] = datetime.now(timezone.utc)
     result = await db.vouchers.insert_one(doc)
     return serialize_doc(await db.vouchers.find_one({"_id": result.inserted_id}))
+
+
+@router.put("/{voucher_id}")
+async def update_voucher(
+    voucher_id: str,
+    payload: VoucherUpdate,
+    current_user=Depends(require_roles("superadmin", "admin")),
+):
+    db = get_database()
+    voucher_object_id = object_id(voucher_id, "Voucher")
+    if not await db.vouchers.find_one({"_id": voucher_object_id}):
+        raise HTTPException(status_code=404, detail="Voucher not found")
+    duplicate = await db.vouchers.find_one({
+        "voucher_no": payload.voucher_no,
+        "_id": {"$ne": voucher_object_id},
+    })
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Voucher number already exists")
+    values = payload.model_dump(mode="json")
+    values.update({
+        "updated_by": current_user["id"],
+        "updated_at": datetime.now(timezone.utc),
+    })
+    result = await db.vouchers.find_one_and_update(
+        {"_id": voucher_object_id},
+        {"$set": values},
+        return_document=ReturnDocument.AFTER,
+    )
+    return serialize_doc(result)
+
+
+@router.delete("/{voucher_id}", status_code=204)
+async def delete_voucher(
+    voucher_id: str,
+    _: dict = Depends(require_roles("superadmin", "admin")),
+):
+    result = await get_database().vouchers.delete_one(
+        {"_id": object_id(voucher_id, "Voucher")}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Voucher not found")
 
 
 @router.patch("/{voucher_id}/approve")

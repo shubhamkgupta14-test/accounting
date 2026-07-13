@@ -29,6 +29,7 @@ def client():
     with TestClient(app) as test_client:
         async def seed():
             from app.core.database import get_database
+            from app.routes.content import ensure_default_content
             db = get_database()
             await db.client.drop_database(db.name)
             now = datetime.now(timezone.utc)
@@ -43,6 +44,7 @@ def client():
                 {"code": "SALES", "name": "Sales", "type": "Income", "group": "Direct Income", "opening_balance": 0, "is_active": True},
                 {"code": "CAP", "name": "Capital", "type": "Equity", "group": "Capital", "opening_balance": 1500, "is_active": True},
             ])
+            await ensure_default_content()
         test_client.portal.call(seed)
         yield test_client
         async def cleanup():

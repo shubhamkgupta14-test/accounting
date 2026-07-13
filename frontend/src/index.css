@@ -495,7 +495,7 @@ body {
 
 .toast-stack {
   position: fixed;
-  top: 72px;
+  bottom: 20px;
   right: 20px;
   z-index: 200;
   display: flex;
@@ -883,6 +883,11 @@ body {
 }
 
 @media (max-width: 480px) {
+  .toast-stack {
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100vw - 24px);
+  }
   .top-header { padding: 0 8px; }
   .top-header > div:first-of-type > span:last-child { display: none; }
   .main-content { padding: 12px 9px 18px; }
