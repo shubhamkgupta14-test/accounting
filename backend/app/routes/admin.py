@@ -6,17 +6,23 @@ from app.dependencies import require_roles
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-DEFAULT_PROTECTED_COLLECTIONS = {"users", "accounts"}
+DEFAULT_SELECTED_COLLECTIONS = {
+    "inventory_movements", "journal_entries", "transactions", "vouchers",
+}
 ALL_CLEANABLE_COLLECTIONS = [
-    "companies",
-    "journal_entries",
-    "vouchers",
-    "transactions",
-    "notifications",
-    "notification_reads",
-    "password_reset_otps",
-    "auth_rate_limits",
+    "accounts",
     "app_settings",
+    "auth_rate_limits",
+    "companies",
+    "inventory_movements",
+    "journal_entries",
+    "notification_reads",
+    "notifications",
+    "page_content",
+    "password_reset_otps",
+    "transactions",
+    "users",
+    "vouchers",
 ]
 
 
@@ -26,10 +32,13 @@ class CleanRequest(BaseModel):
 
 @router.get("/collections")
 async def list_collections(_: dict = Depends(require_roles("superadmin"))):
-    existing = set(await get_database().list_collection_names())
     return [
-        {"name": name, "default_selected": name not in DEFAULT_PROTECTED_COLLECTIONS, "protected_default": name in DEFAULT_PROTECTED_COLLECTIONS}
-        for name in sorted(existing | set(ALL_CLEANABLE_COLLECTIONS) | DEFAULT_PROTECTED_COLLECTIONS)
+        {
+            "name": name,
+            "default_selected": name in DEFAULT_SELECTED_COLLECTIONS,
+            "protected_default": name not in DEFAULT_SELECTED_COLLECTIONS,
+        }
+        for name in ALL_CLEANABLE_COLLECTIONS
     ]
 
 
@@ -37,7 +46,7 @@ async def list_collections(_: dict = Depends(require_roles("superadmin"))):
 async def clean_collections(payload: CleanRequest, _: dict = Depends(require_roles("superadmin"))):
     db = get_database()
     deleted: dict[str, int] = {}
-    allowed = set(ALL_CLEANABLE_COLLECTIONS) | DEFAULT_PROTECTED_COLLECTIONS
+    allowed = set(ALL_CLEANABLE_COLLECTIONS)
     invalid = sorted(set(payload.collections) - allowed)
     if invalid:
         from fastapi import HTTPException

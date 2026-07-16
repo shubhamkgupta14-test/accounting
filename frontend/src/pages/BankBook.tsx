@@ -9,7 +9,10 @@ import { useAppSettings } from '../context/SettingsContext'
 export default function BankBook() {
   const { bankTransactions, accounts } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
-  const bankAccounts = accounts.filter(account => account.group === 'Bank')
+  const bankAccounts = accounts.filter(account =>
+    account.type === 'Asset' &&
+    (account.group.toLowerCase() === 'bank' || account.name.toLowerCase().includes('bank'))
+  )
   const receipts = bankTransactions.filter(r => r.type === 'Receipt')
   const payments = bankTransactions.filter(r => r.type === 'Payment')
   const closing = bankTransactions[bankTransactions.length - 1]?.balance ?? 0

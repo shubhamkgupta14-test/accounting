@@ -18,6 +18,9 @@ async def close_mongo_connection() -> None:
 
 async def ensure_indexes() -> None:
     db = get_database()
+    # FY profit/loss is calculated for reports and must never be represented by
+    # a system-generated journal. Remove entries created by the retired feature.
+    await db.journal_entries.delete_many({"system_entry_type": "FY_CLOSE"})
     await db.users.create_index("email", unique=True)
     await db.users.create_index([("role", 1), ("is_active", 1), ("created_at", -1)])
     await db.accounts.create_index("code", unique=True)
@@ -25,11 +28,13 @@ async def ensure_indexes() -> None:
     await db.accounts.create_index([("type", 1), ("group", 1), ("code", 1)])
     await db.journal_entries.create_index("voucher_no", unique=True)
     await db.journal_entries.create_index([("status", 1), ("date", -1)])
+    await db.journal_entries.create_index([("date", -1), ("_id", -1)])
     await db.journal_entries.create_index([("entries.account", 1), ("status", 1), ("date", 1)])
     await db.vouchers.create_index("voucher_no", unique=True)
     await db.vouchers.create_index([("status", 1), ("type", 1), ("date", -1)])
     await db.transactions.create_index([("book", 1), ("date", 1), ("_id", 1)])
     await db.transactions.create_index("voucher_no")
+    await db.inventory_movements.create_index([("item_id", 1), ("date", 1), ("_id", 1)])
     await db.notifications.create_index([("audience", 1), ("created_at", -1)])
     await db.notification_reads.create_index([("notification_id", 1), ("user_id", 1)], unique=True)
     await db.password_reset_otps.create_index("expires_at", expireAfterSeconds=0)

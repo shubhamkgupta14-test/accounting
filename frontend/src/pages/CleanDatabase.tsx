@@ -33,6 +33,7 @@ export default function CleanDatabase() {
   }
 
   if (loading) return <CleanDatabaseSkeleton />
+  const allSelected = collections.length > 0 && selected.length === collections.length
 
   return (
     <div>
@@ -42,10 +43,10 @@ export default function CleanDatabase() {
       <div className="card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
           <button className="btn btn-secondary" onClick={() => setSelected(collections.filter(row => row.default_selected).map(row => row.name))}>
-            <Database size={14} /> Select Normal Models
+            <Database size={14} /> Select Default
           </button>
-          <button className="btn btn-secondary" onClick={() => setSelected(collections.map(row => row.name))}>
-            Select All
+          <button className="btn btn-secondary" onClick={() => setSelected(allSelected ? [] : collections.map(row => row.name))}>
+            {allSelected ? 'Deselect All' : 'Select All'}
           </button>
           <button className="btn btn-danger" disabled={selected.length === 0 || cleaning} onClick={clean}>
             {cleaning ? <Spinner /> : <Trash2 size={14} />} {cleaning ? 'Cleaning…' : 'Run Clean Action'}
@@ -60,7 +61,7 @@ export default function CleanDatabase() {
                 onChange={e => setSelected(current => e.target.checked ? [...current, row.name] : current.filter(name => name !== row.name))}
               />
               <span>{row.name}</span>
-              {row.protected_default && <span className="badge badge-amber" style={{ marginLeft: 'auto' }}>normal skip</span>}
+              {row.default_selected && <span className="badge badge-amber" style={{ marginLeft: 'auto' }}>default</span>}
             </label>
           ))}
         </div>

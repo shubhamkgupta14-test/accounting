@@ -7,7 +7,7 @@ interface AuthContextValue {
   canWrite: boolean
   canManageUsers: boolean
   login: (email: string, password: string) => Promise<void>
-  updateProfile: (payload: { first_name: string; last_name: string; email: string }) => Promise<void>
+  updateProfile: (payload: { first_name: string; last_name: string; email: string; audit_mode?: boolean }) => Promise<void>
   logout: () => Promise<void>
 }
 

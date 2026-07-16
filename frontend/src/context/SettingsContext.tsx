@@ -7,6 +7,7 @@ const fallback: AppSettings = {
   company: { company_name: appName, gstin: '', pan: '', email: '', phone: '', business_type: 'Private Limited', registered_address: '' },
   fiscal: { start: 'April 1', end: 'March 31', financial_year: '2026-27', currency: 'INR', date_format: 'DD/MM/YYYY', voucher_numbering: 'auto' },
   notifications: { pending_vouchers: true, daily_digest: true, low_balance: true, gst_reminders: true, journal_posted: true },
+  partners: [],
 }
 
 const SettingsContext = createContext({ settings: fallback, loading: true, reload: async () => {}, formatMoney: (value: number) => `₹${value.toLocaleString('en-IN')}`, formatDate: (value: string) => value, currencySymbol: '₹' })

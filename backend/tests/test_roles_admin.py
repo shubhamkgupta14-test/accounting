@@ -24,6 +24,17 @@ def test_superadmin_cleanup_rejects_unknown_collection(client, login):
     assert response.status_code == 400
 
 
+def test_cleanup_defaults_to_transactional_collections(client, login):
+    login("superadmin")
+    response = client.get("/api/admin/collections")
+    assert response.status_code == 200
+    rows = response.json()
+    assert {row["name"] for row in rows if row["default_selected"]} == {
+        "inventory_movements", "journal_entries", "transactions", "vouchers",
+    }
+    assert {"users", "accounts", "app_settings", "page_content"}.issubset({row["name"] for row in rows})
+
+
 def test_admin_cannot_export_global_data(client, login):
     login("admin")
     assert client.get("/api/settings/export").status_code == 403

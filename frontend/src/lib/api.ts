@@ -20,6 +20,7 @@ export interface AuthUser {
   last_name: string;
   email: string;
   role: UserRole;
+  audit_mode?: boolean;
   is_active?: boolean;
   created_at?: string;
 }
@@ -145,6 +146,13 @@ export interface FiscalSettings {
   date_format: string;
   voucher_numbering: string;
 }
+export interface PartnerCapitalSettings {
+  partner_name: string;
+  account_name: string;
+  account_code: string;
+  share_percentage: number;
+  opening_balance: number;
+}
 
 export type NotificationSettings = Record<
   | "pending_vouchers"
@@ -158,6 +166,21 @@ export interface AppSettings {
   company: CompanySettings;
   fiscal: FiscalSettings;
   notifications: NotificationSettings;
+  partners: PartnerCapitalSettings[];
+}
+export interface ReportPeriod { start_date: string; end_date: string }
+export interface FinancialReportRow { code: string; name: string; group: string; amount: number; calculated?: boolean }
+export interface TrialBalanceRow extends FinancialReportRow {
+  type: Account['type']; opening_balance: number; period_movement: number; closing_balance: number; debit: number; credit: number
+}
+export interface FinancialStatementResponse {
+  period: ReportPeriod
+  trial_balance: { rows: TrialBalanceRow[]; total_debit: number; total_credit: number }
+  profit_and_loss: {
+    opening_stock: number; closing_stock: number; direct_expenses: FinancialReportRow[]; direct_income: FinancialReportRow[]
+    indirect_expenses: FinancialReportRow[]; indirect_income: FinancialReportRow[]; gross_profit: number; net_profit: number
+  }
+  balance_sheet: { assets: FinancialReportRow[]; liabilities_and_capital: FinancialReportRow[]; closing_stock: number; opening_retained_earnings: number }
 }
 export interface DatabaseExport {
   exported_at: string;
@@ -181,10 +204,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers: options.body instanceof FormData
+      ? options.headers
+      : { "Content-Type": "application/json", ...options.headers },
   });
   if (import.meta.env.DEV) {
     console.info(`[API] ${method} ${path} -> ${response.status}`);
@@ -246,6 +268,7 @@ export const api = {
     first_name: string;
     last_name: string;
     email: string;
+    audit_mode?: boolean;
   }) =>
     request<AuthUser>("/auth/profile", {
       method: "PATCH",
@@ -285,12 +308,35 @@ export const api = {
   deleteAccount: (id: string) =>
     request<void>(`/accounts/${id}`, { method: "DELETE" }),
   journals: () => request<JournalEntry[]>("/journal-entries"),
+  financialReportJournals: () => request<JournalEntry[]>("/reports/journal-data"),
+  financialYears: () => request<{ periods: ReportPeriod[] }>("/reports/financial-years"),
+  financialStatements: (startDate: string, endDate: string, businessStartDate?: string) => {
+    const query = new URLSearchParams({ start_date: startDate, end_date: endDate })
+    if (businessStartDate) query.set('business_start_date', businessStartDate)
+    return request<FinancialStatementResponse>(`/reports/financial-statements?${query}`)
+  },
   journalsPage: (params: PageQuery) => request<PageResponse<JournalEntry>>(`/journal-entries/page?${queryString(params)}`),
   createJournal: (payload: JournalCreatePayload) =>
     request<JournalEntry>("/journal-entries", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  importJournalsExcel: (file: File, accountDefinitions?: Array<{ source_name: string; name: string; code: string; type: Account['type']; group: string }>) => {
+    const body = new FormData()
+    body.append('file', file)
+    if (accountDefinitions?.length) body.append('account_definitions', JSON.stringify(accountDefinitions))
+    return request<{ imported: number; voucher_numbers: string[]; line_count: number }>("/journal-entries/import-excel", { method: "POST", body })
+  },
+  previewJournalsExcel: (file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request<{ unknown_ledgers: Array<{ source_name: string; name: string; code: string; type: Account['type']; group: string }> }>("/journal-entries/import-excel/preview", { method: "POST", body })
+  },
+  downloadJournalImportSample: async () => {
+    const response = await fetch(`${API_BASE_URL}/journal-entries/import-excel/sample`, { credentials: "include" })
+    if (!response.ok) throw new ApiError("Unable to download the journal import sample", response.status)
+    return response.blob()
+  },
   updateJournal: (id: string, payload: JournalCreatePayload) =>
     request<JournalEntry>(`/journal-entries/${id}`, {
       method: "PUT",
@@ -321,13 +367,18 @@ export const api = {
   ledger: (accountName: string) =>
     request<LedgerRow[]>(`/reports/ledger/${encodeURIComponent(accountName)}`),
   ledgerAccounts: () => request<{ accounts: string[] }>("/reports/ledger-accounts"),
-  ledgerPage: (accountName: string, params: PageQuery) => request<PageResponse<LedgerRow>>(`/reports/ledger/${encodeURIComponent(accountName)}/page?${queryString(params)}`),
-  dashboard: () => request<{
+  ledgerPage: (accountName: string, params: PageQuery) => request<PageResponse<LedgerRow>>(`/reports/ledger-page?${queryString({ ...params, account_name: accountName })}`),
+  dashboard: (graphStartDate?: string, graphEndDate?: string) => {
+    const query = new URLSearchParams()
+    if (graphStartDate) query.set('graph_start_date', graphStartDate)
+    if (graphEndDate) query.set('graph_end_date', graphEndDate)
+    return request<{
     stats: { cash: number; bank: number; sales: number; purchases: number; profit: number; pending_vouchers: number };
     recent_journals: JournalEntry[];
     monthly: { key: string; revenue: number; expenses: number; inflow: number; outflow: number; profit: number }[];
     expense_breakdown: { name: string; value: number }[];
-  }>("/reports/dashboard"),
+    }>(`/reports/dashboard${query.size ? `?${query}` : ''}`)
+  },
   notifications: () => request<Notification[]>("/notifications"),
   createNotification: (payload: {
     title: string;
@@ -354,6 +405,11 @@ export const api = {
     request<FiscalSettings>("/settings/fiscal", {
       method: "PATCH",
       body: JSON.stringify(payload),
+    }),
+  updatePartnerSettings: (partners: PartnerCapitalSettings[]) =>
+    request<{ partners: PartnerCapitalSettings[] }>("/settings/partners", {
+      method: "PATCH",
+      body: JSON.stringify({ partners }),
     }),
   updateNotificationSettings: (payload: NotificationSettings) =>
     request<NotificationSettings>("/settings/notifications", {

@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { useAppSettings } from '../context/SettingsContext'
 import PageIntro from '../components/PageIntro'
 import { api, type JournalEntry } from '../lib/api'
+import type { ReportPeriod } from '../lib/api'
 import { PageSkeleton } from '../components/Loading'
 
 interface Props { onNavigate: (page: PageId) => void }
@@ -58,12 +59,18 @@ export default function Dashboard({ onNavigate }: Props) {
   const { settings, formatMoney, formatDate, currencySymbol } = useAppSettings()
   const [report, setReport] = useState<DashboardReport>(emptyReport)
   const [initialLoading, setInitialLoading] = useState(true)
+  const [graphPeriods, setGraphPeriods] = useState<ReportPeriod[]>([])
+  const [graphPeriod, setGraphPeriod] = useState('all')
   const refreshing = useRef(false)
   const refresh = useCallback(async () => {
     if (refreshing.current) return
     refreshing.current = true
-    try { setReport(await api.dashboard()) }
+    const selected = graphPeriods.find(period => period.start_date === graphPeriod)
+    try { setReport(await api.dashboard(selected?.start_date, selected?.end_date)) }
     finally { refreshing.current = false; setInitialLoading(false) }
+  }, [graphPeriod, graphPeriods])
+  useEffect(() => {
+    api.financialYears().then(result => setGraphPeriods(result.periods)).catch(() => setGraphPeriods([]))
   }, [])
   useEffect(() => {
     void refresh().catch(() => undefined)
@@ -89,7 +96,16 @@ export default function Dashboard({ onNavigate }: Props) {
   return (
     <div>
       <div className="page-header">
-        <PageIntro id="dashboard" onReload={refresh} />
+        <PageIntro id="dashboard" onReload={refresh} beforeReload={<>
+          <label htmlFor="dashboard-graph-period" style={{ fontSize: 12.5, color: '#64748B' }}>Graph period</label>
+          <select id="dashboard-graph-period" className="select" style={{ minWidth: 150, fontSize: 13 }} value={graphPeriod} onChange={event => setGraphPeriod(event.target.value)}>
+            <option value="all">All</option>
+            {graphPeriods.map(period => {
+              const year = Number(period.start_date.slice(0, 4))
+              return <option key={period.start_date} value={period.start_date}>FY {year}-{String(year + 1).slice(2)}</option>
+            })}
+          </select>
+        </>} />
       </div>
 
       {pendingCount > 0 && (
@@ -116,13 +132,13 @@ export default function Dashboard({ onNavigate }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 20 }}>
         <div className="card" style={{ padding: '20px 24px' }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Revenue vs Expenses</h3>
-          <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748B' }}>Posted journals only</p>
+          <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748B' }}>Net journal income and expenses</p>
           {monthlyRevenue.length > 0 ? (
             <ResponsiveContainer width="100%" height={210}>
-              <AreaChart data={monthlyRevenue} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <AreaChart data={monthlyRevenue} margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#94A3B8', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v, currencySymbol, true)} />
+                <YAxis width={76} tick={{ fontSize: 10, fill: '#94A3B8', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v, currencySymbol, true)} />
                 <Tooltip content={<CustomTooltip currencySymbol={currencySymbol} />} />
                 <Area type="monotone" dataKey="revenue" stroke="#2563EB" strokeWidth={2} fill="#EFF6FF" name="Revenue" dot={false} />
                 <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} fill="#FEF2F2" name="Expenses" dot={false} />
@@ -160,10 +176,10 @@ export default function Dashboard({ onNavigate }: Props) {
           <p style={{ margin: '0 0 20px', fontSize: 12, color: '#64748B' }}>Cash and bank transactions only</p>
           {cashflowData.length > 0 ? (
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={cashflowData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} barGap={3} barSize={16}>
+              <BarChart data={cashflowData} margin={{ top: 0, right: 8, left: 8, bottom: 0 }} barGap={3} barSize={16}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#94A3B8', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v, currencySymbol, true)} />
+                <YAxis width={76} tick={{ fontSize: 10, fill: '#94A3B8', fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v, currencySymbol, true)} />
                 <Tooltip content={<CustomTooltip currencySymbol={currencySymbol} />} />
                 <Bar dataKey="inflow" fill="#2563EB" radius={[3, 3, 0, 0]} name="Inflow" />
                 <Bar dataKey="outflow" fill="#EF4444" radius={[3, 3, 0, 0]} name="Outflow" />

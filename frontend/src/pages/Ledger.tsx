@@ -9,6 +9,7 @@ import PageIntro from '../components/PageIntro'
 import TablePagination from '../components/TablePagination'
 import { useAppSettings } from '../context/SettingsContext'
 import { TableSkeletonRows } from '../components/Loading'
+import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 
 interface Props {
   onNavigate?: (page: PageId) => void
@@ -63,6 +64,10 @@ export default function Ledger({ onNavigate }: Props) {
   const totalDr = rows.reduce((s, r) => s + r.dr, 0)
   const totalCr = rows.reduce((s, r) => s + r.cr, 0)
   const closingBalance = account?.balance ?? rows[rows.length - 1]?.balance ?? 0
+  const balanceSide = (balance: number) => {
+    const debitNature = account?.type === 'Asset' || account?.type === 'Expense'
+    return (debitNature && balance >= 0) || (!debitNature && balance < 0) ? 'Dr' : 'Cr'
+  }
 
   if (loadingAccounts) {
     return (
@@ -89,6 +94,7 @@ export default function Ledger({ onNavigate }: Props) {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="ledger" />
         <div style={{ display: 'flex', gap: 8 }}>
+          <AuditUncheckAllButton />
           <ExportMenu title={`${account?.name || 'Ledger'} Ledger`} rows={rows.map(row => ({
             date: row.date, particulars: row.particulars, voucher_no: row.voucherNo,
             type: row.type, debit: row.dr, credit: row.cr, balance: row.balance,
@@ -156,7 +162,7 @@ export default function Ledger({ onNavigate }: Props) {
                 <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 22, fontWeight: 700, color: closingBalance >= 0 ? '#10B981' : '#EF4444' }}>
                   {formatMoney(Math.abs(closingBalance))}
                 </div>
-                <div style={{ fontSize: 11.5, color: '#64748B' }}>{closingBalance >= 0 ? 'Dr' : 'Cr'}</div>
+                <div style={{ fontSize: 11.5, color: '#64748B' }}>{balanceSide(closingBalance)}</div>
               </div>
             </div>
           </div>
@@ -165,6 +171,7 @@ export default function Ledger({ onNavigate }: Props) {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: 36, minWidth: 36, padding: 0 }} />
                   <th>Date</th>
                   <th>Particulars</th>
                   <th>Voucher No.</th>
@@ -175,30 +182,33 @@ export default function Ledger({ onNavigate }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {loading && <TableSkeletonRows rows={pageSize} columns={7} />}
+                {loading && <TableSkeletonRows rows={pageSize} columns={8} />}
                 {!loading && rows.map((r, i) => (
                   <tr key={`${r.voucherNo}-${i}`}>
+                    <td style={{ width: 36, minWidth: 36, padding: '8px 4px', textAlign: 'center' }}>
+                      <AuditCheckbox item={`ledger entry ${r.voucherNo}`} />
+                    </td>
                     <td className="date-cell"><span className="mono" style={{ fontSize: 12.5 }}>{formatDate(r.date)}</span></td>
                     <td><span className="narration-text">{r.particulars}</span></td>
                     <td><span className="mono" style={{ fontSize: 12.5, color: '#64748B' }}>{r.voucherNo}</span></td>
                     <td><span className={`badge ${r.type === 'Receipt' ? 'badge-green' : 'badge-red'}`}>{r.type}</span></td>
                     <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? r.dr.toLocaleString('en-IN') : '-'}</td>
                     <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? r.cr.toLocaleString('en-IN') : '-'}</td>
-                    <td className="num total-amount" style={{ fontWeight: 600 }}>{Math.abs(r.balance).toLocaleString('en-IN')} {r.balance >= 0 ? 'Dr' : 'Cr'}</td>
+                    <td className="num total-amount" style={{ fontWeight: 600 }}>{Math.abs(r.balance).toLocaleString('en-IN')} {balanceSide(r.balance)}</td>
                   </tr>
                 ))}
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={7}><div className="empty-state" style={{ padding: '36px 20px' }}>No journal entries posted for this account.</div></td>
+                    <td colSpan={8}><div className="empty-state" style={{ padding: '36px 20px' }}>No journal entries posted for this account.</div></td>
                   </tr>
                 )}
               </tbody>
               <tfoot>
                 <tr className="totals-row">
-                  <td colSpan={4} style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700 }}>Page totals</td>
+                  <td colSpan={5} style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700 }}>Page totals</td>
                   <td className="num dr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalDr.toLocaleString('en-IN')}</td>
                   <td className="num cr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalCr.toLocaleString('en-IN')}</td>
-                  <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{Math.abs(closingBalance).toLocaleString('en-IN')} {closingBalance >= 0 ? 'Dr' : 'Cr'}</td>
+                  <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{Math.abs(closingBalance).toLocaleString('en-IN')} {balanceSide(closingBalance)}</td>
                 </tr>
               </tfoot>
             </table>

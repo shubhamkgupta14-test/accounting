@@ -69,6 +69,7 @@ class ProfileUpdate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
+    audit_mode: bool = False
 
 
 async def _authenticate_user(email: str, password: str, request: Request):
@@ -231,6 +232,7 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
             "first_name": payload.first_name,
             "last_name": payload.last_name,
             "email": payload.email.lower(),
+            "audit_mode": payload.audit_mode,
             "updated_at": datetime.now(timezone.utc),
         }},
     )

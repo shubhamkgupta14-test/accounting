@@ -13,7 +13,7 @@ def natural_balance(account: dict, totals: dict[str, dict[str, float]]) -> float
 
 async def journal_totals_by_account(db) -> dict[str, dict[str, float]]:
     rows = await db.journal_entries.aggregate([
-        {"$match": {"status": "Posted"}},
+        {"$match": {"status": "Posted", "system_entry_type": {"$ne": "FY_CLOSE"}}},
         {"$unwind": "$entries"},
         {"$group": {"_id": "$entries.account", "debit": {"$sum": "$entries.debit"}, "credit": {"$sum": "$entries.credit"}}},
     ]).to_list(length=None)
@@ -33,7 +33,11 @@ async def add_balances_to_accounts(db, accounts: list[dict]) -> list[dict]:
     if not names:
         return accounts
     rows = await db.journal_entries.aggregate([
-        {"$match": {"status": "Posted", "entries.account": {"$in": names}}},
+        {"$match": {
+            "entries.account": {"$in": names},
+            "status": "Posted",
+            "system_entry_type": {"$ne": "FY_CLOSE"},
+        }},
         {"$unwind": "$entries"},
         {"$match": {"entries.account": {"$in": names}}},
         {"$group": {"_id": "$entries.account", "debit": {"$sum": "$entries.debit"}, "credit": {"$sum": "$entries.credit"}}},

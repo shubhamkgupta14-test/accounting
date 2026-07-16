@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.database import get_database
 from app.dependencies import get_current_user, require_roles
@@ -34,6 +34,7 @@ DEFAULT_SETTINGS = {
         "gst_reminders": True,
         "journal_posted": True,
     },
+    "partners": [],
 }
 
 
@@ -64,12 +65,35 @@ class NotificationSettings(BaseModel):
     journal_posted: bool
 
 
+class PartnerCapital(BaseModel):
+    partner_name: str = Field(min_length=1, max_length=150)
+    account_name: str = Field(min_length=1, max_length=200)
+    account_code: str = Field(min_length=1, max_length=50)
+    share_percentage: float = Field(gt=0, le=100)
+    opening_balance: float = Field(default=0, ge=0)
+
+
+class PartnerSettings(BaseModel):
+    partners: list[PartnerCapital] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_partners(self):
+        if self.partners and abs(sum(row.share_percentage for row in self.partners) - 100) > .001:
+            raise ValueError("Partner profit/loss shares must total 100%")
+        names = [row.account_name.strip().lower() for row in self.partners]
+        codes = [row.account_code.strip().lower() for row in self.partners]
+        if len(names) != len(set(names)) or len(codes) != len(set(codes)):
+            raise ValueError("Partner capital account names and codes must be unique")
+        return self
+
+
 async def _get_settings():
     saved = await get_database().app_settings.find_one({"_id": "global"}) or {}
     return {
         "company": {**DEFAULT_SETTINGS["company"], **saved.get("company", {})},
         "fiscal": {**DEFAULT_SETTINGS["fiscal"], **saved.get("fiscal", {})},
         "notifications": {**DEFAULT_SETTINGS["notifications"], **saved.get("notifications", {})},
+        "partners": saved.get("partners", DEFAULT_SETTINGS["partners"]),
     }
 
 
@@ -107,6 +131,34 @@ async def update_notifications(payload: NotificationSettings, _: dict = Depends(
         {"_id": "global"}, {"$set": {"notifications": values, "updated_at": datetime.now(timezone.utc)}}, upsert=True
     )
     return values
+
+
+@router.patch("/partners")
+async def update_partners(payload: PartnerSettings, _: dict = Depends(require_roles("superadmin"))):
+    db = get_database()
+    values = payload.model_dump()["partners"]
+    for partner in values:
+        conflict = await db.accounts.find_one({
+            "$or": [{"code": partner["account_code"]}, {"name": partner["account_name"]}],
+            "name": {"$ne": partner["account_name"]},
+        })
+        if conflict:
+            raise HTTPException(status_code=409, detail=f"Account code {partner['account_code']} is already in use")
+        await db.accounts.update_one(
+            {"name": partner["account_name"]},
+            {"$set": {
+                "code": partner["account_code"], "name": partner["account_name"],
+                "type": "Equity", "group": "Capital", "opening_balance": partner["opening_balance"],
+                "is_active": True, "partner_capital": True,
+            }},
+            upsert=True,
+        )
+    await db.app_settings.update_one(
+        {"_id": "global"},
+        {"$set": {"partners": values, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"partners": values}
 
 
 @router.get("/export")

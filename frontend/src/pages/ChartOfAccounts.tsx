@@ -9,6 +9,7 @@ import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type Account } from '../lib/api'
 import { Spinner, TableSkeletonRows } from '../components/Loading'
+import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 
 type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
 
@@ -169,6 +170,7 @@ export default function ChartOfAccounts() {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="chart-of-accounts" />
         <div style={{ display: 'flex', gap: 8 }}>
+          <AuditUncheckAllButton />
           <ExportMenu fullReport title="Ledger Accounts" rows={rows.map(row => ({
             code: row.id,
             name: row.name,
@@ -272,6 +274,7 @@ export default function ChartOfAccounts() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 36, minWidth: 36, padding: 0 }} />
                 <th>A/c Code</th>
                 <th>Ledger Account Name</th>
                 <th>Type</th>
@@ -281,9 +284,12 @@ export default function ChartOfAccounts() {
               </tr>
             </thead>
             <tbody>
-              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 6 : 5} />}
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 7 : 6} />}
               {!loadingRows && rows.map(a => (
                 <tr key={a.id}>
+                  <td style={{ width: 36, minWidth: 36, padding: '8px 4px', textAlign: 'center' }}>
+                    <AuditCheckbox item={`ledger account ${a.name}`} />
+                  </td>
                   <td><span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{a.id}</span></td>
                   <td style={{ fontWeight: 500 }}>{a.name}</td>
                   <td><span className={`badge ${typeColors[a.type] || 'badge-slate'}`}>{a.type}</span></td>
@@ -309,7 +315,7 @@ export default function ChartOfAccounts() {
               ))}
               {!loadingRows && rows.length === 0 && (
                 <tr>
-                  <td colSpan={canWrite || canManageUsers ? 6 : 5}>
+                  <td colSpan={canWrite || canManageUsers ? 7 : 6}>
                     <div className="empty-state" style={{ padding: '36px 20px' }}>
                       <p>No ledger accounts yet. Add ledger accounts before creating journal entries.</p>
                     </div>

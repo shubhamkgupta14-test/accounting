@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Save, Building2, User, Lock, Bell, Database, Globe } from 'lucide-react'
-import { api, type CompanySettings, type FiscalSettings, type NotificationSettings } from '../lib/api'
+import { Save, Building2, User, Lock, Bell, Database, Globe, Users, Trash2 } from 'lucide-react'
+import { api, type CompanySettings, type FiscalSettings, type NotificationSettings, type PartnerCapitalSettings } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import { useAuth } from '../context/AuthContext'
@@ -9,7 +9,7 @@ import { useAppSettings } from '../context/SettingsContext'
 import PasswordInput from '../components/PasswordInput'
 import { SettingsSkeleton } from '../components/Loading'
 
-type Tab = 'company' | 'profile' | 'security' | 'notifications' | 'data' | 'fiscal'
+type Tab = 'company' | 'profile' | 'security' | 'notifications' | 'data' | 'fiscal' | 'partners'
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode; roles: Array<'superadmin' | 'admin' | 'user'> }[] = [
   { id: 'company', label: 'Company', icon: <Building2 size={14} />, roles: ['superadmin', 'admin', 'user'] },
@@ -17,8 +17,17 @@ const tabs: { id: Tab; label: string; icon: React.ReactNode; roles: Array<'super
   { id: 'security', label: 'Security', icon: <Lock size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'data', label: 'Data & Backup', icon: <Database size={14} />, roles: ['superadmin'] },
+  { id: 'partners', label: 'Partner Capital', icon: <Users size={14} />, roles: ['superadmin'] },
   { id: 'fiscal', label: 'Fiscal Year', icon: <Globe size={14} />, roles: ['superadmin', 'admin', 'user'] },
 ]
+
+const newPartner = (index: number): PartnerCapitalSettings => ({
+  partner_name: '',
+  account_name: '',
+  account_code: `PARTNER-CAP-${String(index + 1).padStart(2, '0')}`,
+  share_percentage: index === 0 ? 100 : 0,
+  opening_balance: 0,
+})
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState<Tab>('profile')
@@ -26,19 +35,20 @@ export default function Settings() {
   const { user, updateProfile } = useAuth()
   const { settings, loading: settingsLoading, reload } = useAppSettings()
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
-  const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '' })
+  const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '', audit_mode: false })
   const [company, setCompany] = useState<CompanySettings>(settings.company)
   const [fiscal, setFiscal] = useState<FiscalSettings>(settings.fiscal)
   const [notifications, setNotifications] = useState<NotificationSettings>(settings.notifications)
+  const [partners, setPartners] = useState<PartnerCapitalSettings[]>(settings.partners.length ? settings.partners : [newPartner(0)])
   const [exporting, setExporting] = useState(false)
   const role = user?.role || 'user'
   const canManageGlobalSettings = role === 'superadmin'
   const visibleTabs = tabs.filter(tab => tab.roles.includes(role))
 
   useEffect(() => {
-    if (user) setProfile({ first_name: user.first_name, last_name: user.last_name, email: user.email })
+    if (user) setProfile({ first_name: user.first_name, last_name: user.last_name, email: user.email, audit_mode: Boolean(user.audit_mode) })
   }, [user])
-  useEffect(() => { setCompany(settings.company); setFiscal(settings.fiscal); setNotifications(settings.notifications) }, [settings])
+  useEffect(() => { setCompany(settings.company); setFiscal(settings.fiscal); setNotifications(settings.notifications); setPartners(settings.partners.length ? settings.partners : [newPartner(0)]) }, [settings])
   useEffect(() => {
     if (!visibleTabs.some(tab => tab.id === activeTab)) setActiveTab(visibleTabs[0]?.id || 'profile')
   }, [activeTab, role])
@@ -50,6 +60,15 @@ export default function Settings() {
   const saveFiscal = async () => {
     try { await api.updateFiscalSettings(fiscal); await reload(); showToast('success', 'Fiscal settings saved to the database.') }
     catch (err) { showToast('error', err instanceof Error ? err.message : 'Unable to save fiscal settings.') }
+  }
+  const savePartners = async () => {
+    const total = partners.reduce((sum, partner) => sum + Number(partner.share_percentage || 0), 0)
+    if (partners.length && Math.abs(total - 100) > 0.001) {
+      showToast('error', 'Partner profit/loss shares must total 100%.')
+      return
+    }
+    try { await api.updatePartnerSettings(partners); await reload(); showToast('success', 'Partner capital accounts and shares saved.') }
+    catch (err) { showToast('error', err instanceof Error ? err.message : 'Unable to save partner capital settings.') }
   }
   const exportData = async (format: 'csv' | 'json') => {
     setExporting(true)
@@ -161,6 +180,13 @@ export default function Settings() {
                 <div><label className="form-label required">Email</label><input className="input" type="email" value={profile.email} onChange={e => setProfile(p => ({ ...p, email: e.target.value }))} /></div>
                 <div><label className="form-label">Role</label><input className="input" value={user?.role || ''} disabled /></div>
               </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginTop: 20, cursor: 'pointer', padding: '14px 16px', border: '1px solid #E2E8F0', borderRadius: 8, background: '#F8FAFC' }}>
+                <input type="checkbox" checked={profile.audit_mode} onChange={e => setProfile(p => ({ ...p, audit_mode: e.target.checked }))} style={{ width: 16, height: 16, marginTop: 2, accentColor: '#2563EB' }} />
+                <span>
+                  <span style={{ display: 'block', color: '#0F172A', fontSize: 13.5, fontWeight: 600 }}>Audit mode</span>
+                  <span style={{ display: 'block', color: '#64748B', fontSize: 12.5, marginTop: 3 }}>Show matching checkboxes in Trial Balance, Trading Account, Profit & Loss, and Balance Sheet.</span>
+                </span>
+              </label>
               <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
                 <button className="btn btn-primary" onClick={async () => {
                   try {
@@ -217,6 +243,50 @@ export default function Settings() {
               {canManageGlobalSettings && <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
                 <button className="btn btn-primary" onClick={saveFiscal}><Save size={14} /> Save Changes</button>
               </div>}
+            </div>
+          )}
+
+          {activeTab === 'partners' && (
+            <div className="card" style={{ padding: '24px 28px' }}>
+              <h2 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700 }}>Partner Capital Accounts</h2>
+              <p style={{ margin: '0 0 20px', color: '#64748B', fontSize: 13 }}>Closing profit or loss will be allocated to these capital accounts using the configured shares.</p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
+                <button className="btn btn-secondary" disabled={partners.length >= 50} onClick={() => setPartners(rows => [...rows, newPartner(rows.length)])}>
+                  Add Partner
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {partners.map((partner, index) => (
+                  <div key={index} style={{ padding: 16, border: '1px solid #E2E8F0', borderRadius: 8, background: '#F8FAFC' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>Partner {index + 1}</div>
+                      <button type="button" className="btn btn-ghost" title="Delete partner" aria-label={`Delete partner ${index + 1}`}
+                        disabled={partners.length === 1} onClick={() => setPartners(rows => rows.filter((_, rowIndex) => rowIndex !== index))}
+                        style={{ padding: 6, color: partners.length === 1 ? '#94A3B8' : '#DC2626' }}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 12 }}>
+                      {([
+                        ['Partner Name', 'partner_name', 'text'], ['Capital Account Name', 'account_name', 'text'],
+                        ['Account Code', 'account_code', 'text'], ['Share %', 'share_percentage', 'number'],
+                        ['Opening Capital', 'opening_balance', 'number'],
+                      ] as const).map(([label, key, type]) => (
+                        <div key={key}><label className="form-label">{label}</label><input className="input" type={type} min={type === 'number' ? 0 : undefined}
+                          value={partner[key]} onChange={event => setPartners(rows => rows.map((row, rowIndex) => rowIndex === index ? {
+                            ...row, [key]: type === 'number' ? Number(event.target.value) : event.target.value,
+                          } : row))} /></div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 13, color: Math.abs(partners.reduce((sum, row) => sum + Number(row.share_percentage || 0), 0) - 100) < .001 || !partners.length ? '#15803D' : '#DC2626' }}>
+                  Total share: {partners.reduce((sum, row) => sum + Number(row.share_percentage || 0), 0)}%
+                </span>
+                <button className="btn btn-primary" onClick={() => void savePartners()}><Save size={14} /> Save Partner Accounts</button>
+              </div>
             </div>
           )}
 

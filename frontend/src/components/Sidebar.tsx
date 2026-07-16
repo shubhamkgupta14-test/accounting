@@ -38,9 +38,9 @@ const navGroups: NavGroup[] = [
     label: 'Accounts',
     items: [
       { id: 'ledger', label: 'Ledger', icon: <BookMarked size={15} /> },
+      { id: 'chart-of-accounts', label: 'Ledger Accounts', icon: <List size={15} /> },
       { id: 'cashbook', label: 'Cash Book', icon: <Wallet size={15} /> },
       { id: 'bankbook', label: 'Bank Book', icon: <Building2 size={15} /> },
-      { id: 'chart-of-accounts', label: 'Ledger Accounts', icon: <List size={15} /> },
     ]
   },
   {
