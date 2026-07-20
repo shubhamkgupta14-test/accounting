@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
+from app.core.security import verify_password
 from app.core.database import get_database
 from app.dependencies import require_roles
+from app.utils import object_id
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -50,7 +52,8 @@ async def _partner_cleanup_details(db):
 
 
 class CleanRequest(BaseModel):
-    collections: list[str]
+    collections: list[str] = Field(min_length=1, max_length=len(ALL_CLEANABLE_COLLECTIONS))
+    password: str = Field(min_length=1, max_length=128)
 
 
 @router.get("/collections")
@@ -73,13 +76,18 @@ async def list_collections(_: dict = Depends(require_roles("superadmin"))):
 
 
 @router.post("/clean")
-async def clean_collections(payload: CleanRequest, _: dict = Depends(require_roles("superadmin"))):
+async def clean_collections(payload: CleanRequest, current_user: dict = Depends(require_roles("superadmin"))):
     db = get_database()
+    user = await db.users.find_one({"_id": object_id(current_user["id"], "User")})
+    if not user or not verify_password(payload.password, user.get("password_hash", "")):
+        raise HTTPException(
+            status_code=403,
+            detail="Password confirmation failed",
+        )
     deleted: dict[str, int] = {}
     allowed = set(ALL_CLEANABLE_COLLECTIONS)
     invalid = sorted(set(payload.collections) - allowed)
     if invalid:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="One or more collections are not allowed")
     selected = set(payload.collections)
     if "partners" in selected:

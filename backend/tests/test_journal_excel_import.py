@@ -67,3 +67,39 @@ def test_excel_preview_and_import_create_unknown_ledger(client, login):
         return await get_database().accounts.find_one({"name": "Imported Testing Expense"})
     account = client.portal.call(find_account)
     assert account["code"] == "IMP-TEST-EXP"
+
+
+def test_excel_import_uses_normal_account_schema(client, login):
+    login("admin")
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Voucher No", "Date", "Narration", "Account", "Debit", "Credit"])
+    sheet.append(["SEC-IMPORT-SCHEMA", "2026-04-01", "Schema validation", "Unsafe Ledger", 1, 0])
+    sheet.append(["", "", "", "Cash", 0, 1])
+    content = BytesIO()
+    workbook.save(content)
+    definitions = [{
+        "source_name": "Unsafe Ledger",
+        "name": "Unsafe Ledger",
+        "code": "INVALID CODE WITH SPACES",
+        "type": "Asset",
+        "group": "Current Assets",
+    }]
+    response = client.post(
+        "/api/journal-entries/import-excel",
+        files={"file": ("journals.xlsx", content.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"account_definitions": json.dumps(definitions)},
+    )
+    assert response.status_code == 422
+
+
+def test_excel_import_rejects_oversized_workbook(client, login, monkeypatch):
+    from app.core.config import settings
+
+    login("admin")
+    monkeypatch.setattr(settings, "max_excel_upload_bytes", 32)
+    response = client.post(
+        "/api/journal-entries/import-excel/preview",
+        files={"file": ("journals.xlsx", b"x" * 33, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert response.status_code == 413

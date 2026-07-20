@@ -42,16 +42,16 @@ class AccountCreate(BaseModel):
     code: str = Field(min_length=1, max_length=50, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=1, max_length=150)
     type: AccountType
-    group: str
+    group: str = Field(min_length=1, max_length=150)
     opening_balance: float = Field(default=0, allow_inf_nan=False)
     is_active: bool = True
 
 
 class AccountUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=1, max_length=50, pattern=r"^[A-Za-z0-9_-]+$")
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=150)
     type: AccountType | None = None
-    group: str | None = None
+    group: str | None = Field(default=None, min_length=1, max_length=150)
     opening_balance: float | None = Field(default=None, allow_inf_nan=False)
     is_active: bool | None = None
 

@@ -28,8 +28,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        payload = jwt.decode(token, settings.jwt_secret,
-                             algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[ALGORITHM],
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+            options={"require": ["sub", "iat", "exp", "iss", "aud", "jti", "ver"]},
+        )
         user_id = payload.get("sub")
         logger.debug("Decoded auth token for user %s", user_id)
     except jwt.InvalidTokenError as exc:

@@ -420,10 +420,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   adminCollections: () => request<AdminCollection[]>("/admin/collections"),
-  cleanCollections: (collections: string[]) =>
+  cleanCollections: (collections: string[], password: string) =>
     request<{ deleted: Record<string, number> }>("/admin/clean", {
       method: "POST",
-      body: JSON.stringify({ collections }),
+      body: JSON.stringify({ collections, password }),
     }),
   settings: () => request<AppSettings>("/settings"),
   updateCompanySettings: (payload: CompanySettings) =>

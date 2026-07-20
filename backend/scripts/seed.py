@@ -2,6 +2,7 @@ import argparse
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import sys
 from urllib.parse import urlparse
@@ -237,8 +238,25 @@ async def main(args: argparse.Namespace):
     from app.core.database import close_mongo_connection, connect_to_mongo, get_database
     from app.core.security import hash_password
 
+    users = USERS
+    if args.env == "stage":
+        bootstrap_email = os.getenv("ACCOUNTING_BOOTSTRAP_EMAIL", "").strip()
+        bootstrap_password = os.getenv("ACCOUNTING_BOOTSTRAP_PASSWORD", "")
+        if not bootstrap_email or len(bootstrap_password) < 12:
+            raise RuntimeError(
+                "Stage seeding requires ACCOUNTING_BOOTSTRAP_EMAIL and "
+                "ACCOUNTING_BOOTSTRAP_PASSWORD (minimum 12 characters)"
+            )
+        users = [{
+            "first_name": os.getenv("ACCOUNTING_BOOTSTRAP_FIRST_NAME", "Stage").strip() or "Stage",
+            "last_name": os.getenv("ACCOUNTING_BOOTSTRAP_LAST_NAME", "Administrator").strip() or "Administrator",
+            "email": bootstrap_email,
+            "role": "superadmin",
+            "password": bootstrap_password,
+        }]
+
     # Validate static seed data before performing the destructive cleanup.
-    validate_unique(USERS, "email", "user")
+    validate_unique(users, "email", "user")
     validate_unique(DEFAULT_ACCOUNTS, "code", "account")
     validate_unique(DEFAULT_ACCOUNTS, "name", "account")
     validate_account_groups(DEFAULT_ACCOUNTS)
@@ -274,7 +292,7 @@ async def main(args: argparse.Namespace):
             "token_version": 0,
             "created_at": now,
         }
-        for user in USERS
+        for user in users
     ])
     await db.accounts.insert_many([
         {
@@ -295,8 +313,10 @@ async def main(args: argparse.Namespace):
 
     print(
         f"Cleaned Accounting data and created users plus {len(DEFAULT_ACCOUNTS)} default accounts.")
-    print("Logins: superadmin@accountingapp.com / admin@accountingapp.com / user@accountingapp.com")
-    print("Password for all demo users: password123")
+    if args.env == "dev":
+        print("Development demo users created. Credentials are defined only in the development seed.")
+    else:
+        print("Stage bootstrap user created from environment configuration.")
 
 
 if __name__ == "__main__":

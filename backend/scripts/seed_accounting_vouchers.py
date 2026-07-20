@@ -3,7 +3,8 @@
 The script creates or skips JV-001 through JV-050 and is safe to run
 repeatedly. Existing vouchers, including JV-001, are never recreated.
 
-RUN -> npm run seed:vouchers -- --base-url http://127.0.0.1:8000 --email superadmin@accountingapp.com --password password123
+Set ACCOUNTING_API_EMAIL and ACCOUNTING_API_PASSWORD, then run:
+npm run seed:vouchers -- --base-url http://127.0.0.1:8000
 """
 
 from __future__ import annotations
@@ -312,12 +313,14 @@ def main() -> int:
     parser.add_argument(
         "--base-url", default=os.getenv("ACCOUNTING_API_URL", "http://localhost:8000"))
     parser.add_argument(
-        "--email", default=os.getenv("ACCOUNTING_API_EMAIL", "superadmin@accountingapp.com"))
+        "--email", default=os.getenv("ACCOUNTING_API_EMAIL"))
     parser.add_argument(
         "--password", default=os.getenv("ACCOUNTING_API_PASSWORD"))
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate and inspect without writing")
     args = parser.parse_args()
+    if not args.email:
+        parser.error("set ACCOUNTING_API_EMAIL or pass --email")
     if not args.password:
         parser.error("set ACCOUNTING_API_PASSWORD or pass --password")
 

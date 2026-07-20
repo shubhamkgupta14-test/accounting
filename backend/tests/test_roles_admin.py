@@ -20,7 +20,10 @@ def test_admin_cannot_manage_users(client, login):
 
 def test_superadmin_cleanup_rejects_unknown_collection(client, login):
     login("superadmin")
-    response = client.post("/api/admin/clean", json={"collections": ["users.$cmd"]})
+    response = client.post("/api/admin/clean", json={
+        "collections": ["users.$cmd"],
+        "password": "password123",
+    })
     assert response.status_code == 400
 
 
@@ -66,7 +69,10 @@ def test_clean_partners_removes_settings_and_linked_ledgers(client, login):
     partner_row = next(row for row in listed.json() if row["name"] == "partners")
     assert partner_row["document_count"] == 4
 
-    response = client.post("/api/admin/clean", json={"collections": ["partners"]})
+    response = client.post("/api/admin/clean", json={
+        "collections": ["partners"],
+        "password": "password123",
+    })
     assert response.status_code == 200
     assert response.json()["deleted"]["partners"] == 4
 
@@ -119,6 +125,25 @@ def test_user_cannot_read_notification_outside_audience(client, login):
 
 def test_referenced_account_cannot_be_deleted(client, login):
     login("superadmin")
+
+    async def seed_reference():
+        from app.core.database import get_database
+        await get_database().journal_entries.update_one(
+            {"voucher_no": "SEC-ACCOUNT-REFERENCE"},
+            {"$set": {
+                "voucher_no": "SEC-ACCOUNT-REFERENCE",
+                "date": "2026-07-20",
+                "narration": "Security deletion reference",
+                "status": "Posted",
+                "entries": [
+                    {"account": "Cash", "debit": 1, "credit": 0},
+                    {"account": "Capital", "debit": 0, "credit": 1},
+                ],
+            }},
+            upsert=True,
+        )
+
+    client.portal.call(seed_reference)
     cash = next(row for row in client.get("/api/accounts").json() if row["name"] == "Cash")
     assert client.delete(f"/api/accounts/{cash['id']}").status_code == 409
 
@@ -152,3 +177,14 @@ def test_voucher_creation_cannot_bypass_approval(client, login):
     })
     assert response.status_code == 201
     assert response.json()["status"] == "Pending"
+
+
+def test_clean_database_requires_current_superadmin_password(client, login):
+    login("superadmin")
+    missing = client.post("/api/admin/clean", json={"collections": ["vouchers"]})
+    assert missing.status_code == 422
+    wrong = client.post("/api/admin/clean", json={
+        "collections": ["vouchers"],
+        "password": "incorrect-password",
+    })
+    assert wrong.status_code == 403

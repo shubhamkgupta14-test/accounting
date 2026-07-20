@@ -181,3 +181,15 @@ def test_financial_report_journal_data_contains_all_saved_entries(client, login)
     voucher_numbers = {row["voucher_no"] for row in response.json()}
     assert "REPORT-DATA-POSTED" in voucher_numbers
     assert "REPORT-DATA-DRAFT" in voucher_numbers
+
+
+def test_comparative_report_limits_number_of_periods(client, login):
+    from app.core.config import settings
+
+    login()
+    query = "&".join(
+        f"as_of={2020 + index}-04-01"
+        for index in range(settings.max_comparative_periods + 1)
+    )
+    response = client.get(f"/api/reports/comparative-financial-statements?{query}")
+    assert response.status_code == 422

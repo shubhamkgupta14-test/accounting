@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import { CleanDatabaseSkeleton, Spinner } from '../components/Loading'
 import ConfirmModal from '../components/ConfirmModal'
+import PasswordInput from '../components/PasswordInput'
 
 export default function CleanDatabase() {
   const { showToast } = useToast()
@@ -13,6 +14,7 @@ export default function CleanDatabase() {
   const [cleaning, setCleaning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showConfirmation, setShowConfirmation] = useState(false)
+  const [password, setPassword] = useState('')
 
   useEffect(() => {
     api.adminCollections().then(rows => {
@@ -22,10 +24,11 @@ export default function CleanDatabase() {
   }, [])
 
   const clean = async () => {
-    setShowConfirmation(false)
     setCleaning(true)
     try {
-      const result = await api.cleanCollections(selected)
+      const result = await api.cleanCollections(selected, password)
+      setShowConfirmation(false)
+      setPassword('')
       showToast('success', `Cleaned ${Object.keys(result.deleted).length} collections.`)
       setSelected([])
       window.setTimeout(() => window.location.reload(), 500)
@@ -48,9 +51,21 @@ export default function CleanDatabase() {
         message={`${selected.length} database ${selected.length === 1 ? 'collection is' : 'collections are'} selected, containing ${selectedDocumentCount.toLocaleString('en-IN')} ${selectedDocumentCount === 1 ? 'record' : 'records'}. This data will be permanently deleted.`}
         confirmLabel={`Delete ${selectedDocumentCount.toLocaleString('en-IN')} records`}
         danger
-        onCancel={() => setShowConfirmation(false)}
+        confirmDisabled={!password || cleaning}
+        onCancel={() => { setShowConfirmation(false); setPassword('') }}
         onConfirm={() => void clean()}
-      />
+      >
+        <div style={{ padding: '0 20px 16px' }}>
+          <label className="form-label required" htmlFor="clean-database-password">Confirm your password</label>
+          <PasswordInput
+            id="clean-database-password"
+            className="input"
+            value={password}
+            autoComplete="current-password"
+            onChange={event => setPassword(event.target.value)}
+          />
+        </div>
+      </ConfirmModal>
       <div className="page-header">
         <PageIntro id="clean-db" />
       </div>
@@ -62,7 +77,7 @@ export default function CleanDatabase() {
           <button className="btn btn-secondary" onClick={() => setSelected(allSelected ? [] : collections.map(row => row.name))}>
             {allSelected ? 'Deselect All' : 'Select All'}
           </button>
-          <button className="btn btn-danger" disabled={selected.length === 0 || cleaning} onClick={() => setShowConfirmation(true)}>
+          <button className="btn btn-danger" disabled={selected.length === 0 || cleaning} onClick={() => { setPassword(''); setShowConfirmation(true) }}>
             {cleaning ? <Spinner /> : <Trash2 size={14} />} {cleaning ? 'Cleaning…' : 'Run Clean Action'}
           </button>
         </div>
