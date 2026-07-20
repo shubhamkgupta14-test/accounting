@@ -1,1 +1,2 @@
-export const appName = import.meta.env.VITE_APP_NAME || 'Accounting'
+// Non-environment UI customization belongs in this file.
+export const appName = 'Accounting'

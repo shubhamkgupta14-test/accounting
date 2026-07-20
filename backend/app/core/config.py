@@ -6,6 +6,9 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
+    # Application defaults belong here. Every field may still be overridden by
+    # an environment variable with the same uppercase name when a deployment
+    # needs a custom value. Keep secrets and machine-specific values in .env.
     app_name: str = "Accounting"
     env: str = "local"
     uvicorn_port: int = 8000
@@ -18,7 +21,10 @@ class Settings(BaseSettings):
     auth_cookie_name: str = "accounting_session"
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
-    cors_origins: str = "http://localhost:8443,http://127.0.0.1:8443"
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:8443,http://127.0.0.1:8443"
+    )
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
     smtp_host: str | None = None
     smtp_port: int = 587
