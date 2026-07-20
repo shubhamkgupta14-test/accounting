@@ -18,7 +18,10 @@ export default function ProfitAnalysis() {
   }, {})).sort((a, b) => a.key.localeCompare(b.key)).map(row => ({ ...row, profit: row.income - row.expenses }))
   const income = rows.reduce((s, r) => s + r.income, 0), expenses = rows.reduce((s, r) => s + r.expenses, 0)
   return <div>
-    <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between' }}><PageIntro id="profit-analysis" /><ExportMenu fullReport title="Profit Analysis" rows={rows} /></div>
+    <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between' }}><PageIntro id="profit-analysis" /><ExportMenu fullReport rowsOnly title="Profit Analysis" rows={[
+      ...rows.map(row => ({ Month: row.month, [`Income (${currencySymbol})`]: row.income, [`Expenses (${currencySymbol})`]: row.expenses, [`Net Profit / Loss (${currencySymbol})`]: row.profit })),
+      { Month: 'Total', [`Income (${currencySymbol})`]: income, [`Expenses (${currencySymbol})`]: expenses, [`Net Profit / Loss (${currencySymbol})`]: income - expenses },
+    ]} /></div>
     <div className="card"><table className="data-table"><thead><tr><th>Month</th><th className="num dr-heading">Income ({currencySymbol})</th><th className="num cr-heading">Expenses ({currencySymbol})</th><th className="num total-amount">Net Profit / Loss ({currencySymbol})</th></tr></thead>
       <tbody>{rows.map(row => <tr key={row.key}><td>{row.month}</td><td className="num dr-amount">{row.income.toLocaleString('en-IN')}</td><td className="num cr-amount">{row.expenses.toLocaleString('en-IN')}</td><td className="num total-amount" style={{ fontWeight: 700 }}>{row.profit.toLocaleString('en-IN')}</td></tr>)}</tbody>
       <tfoot><tr><td style={{ padding: '12px 16px', fontWeight: 800 }}>Total</td><td className="num dr-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{income.toLocaleString('en-IN')}</td><td className="num cr-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{expenses.toLocaleString('en-IN')}</td><td className="num total-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{(income - expenses).toLocaleString('en-IN')}</td></tr></tfoot>

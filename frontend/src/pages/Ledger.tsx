@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Search, ChevronRight } from 'lucide-react'
+import { Search, ChevronRight, Plus } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
-import { api, type LedgerRow } from '../lib/api'
+import { api, type Account, type LedgerRow } from '../lib/api'
 import type { PageId } from '../App'
 import ExportMenu from '../components/ExportMenu'
 import PageIntro from '../components/PageIntro'
@@ -10,18 +10,44 @@ import TablePagination from '../components/TablePagination'
 import { useAppSettings } from '../context/SettingsContext'
 import { TableSkeletonRows } from '../components/Loading'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
+import AccountDrilldown from '../components/AccountDrilldown'
+import { buildTraditionalTwoSidedExport, escapeExportHtml, exportElementAsPdf, exportRowsAsExcel, formatReportNumber } from '../lib/export'
 
 interface Props {
   onNavigate?: (page: PageId) => void
+}
+
+function traditionalLedgerExport(account: Account, rows: LedgerRow[]) {
+  const debitNature = account.type === 'Asset' || account.type === 'Expense'
+  const debit: Array<{ particulars: string; amount: number }> = []
+  const credit: Array<{ particulars: string; amount: number }> = []
+  const opening = Number(account.opening_balance) || 0
+  const openingIsDebit = (debitNature && opening >= 0) || (!debitNature && opening < 0)
+  if (Math.abs(opening) >= 0.005) {
+    ;(openingIsDebit ? debit : credit).push({ particulars: `${openingIsDebit ? 'To' : 'By'} Balance b/d`, amount: Math.abs(opening) })
+  }
+  rows.forEach(row => {
+    if (row.debit) debit.push({ particulars: `To ${row.particulars} (${row.voucher_no})`, amount: row.debit })
+    if (row.credit) credit.push({ particulars: `By ${row.particulars} (${row.voucher_no})`, amount: row.credit })
+  })
+  const closing = Number(account.balance) || 0
+  const closingIsDebit = (debitNature && closing >= 0) || (!debitNature && closing < 0)
+  if (Math.abs(closing) >= 0.005) {
+    ;(closingIsDebit ? credit : debit).push({ particulars: `${closingIsDebit ? 'By' : 'To'} Balance c/d`, amount: Math.abs(closing) })
+  }
+  const total = Math.max(debit.reduce((sum, row) => sum + row.amount, 0), credit.reduce((sum, row) => sum + row.amount, 0))
+  return buildTraditionalTwoSidedExport('Dr.', 'Cr.', debit, credit, total)
 }
 
 export default function Ledger({ onNavigate }: Props) {
   const { accounts } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
   const { canWrite } = useAuth()
-  const [selected, setSelected] = useState('')
+  const requestedAccount = new URLSearchParams(window.location.search).get('account') || ''
+  const [selected, setSelected] = useState(requestedAccount)
   const [search, setSearch] = useState('')
   const [rows, setRows] = useState<LedgerRow[]>([])
+  const [exportRows, setExportRows] = useState<LedgerRow[]>([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -29,7 +55,7 @@ export default function Ledger({ onNavigate }: Props) {
   const [activeAccountNames, setActiveAccountNames] = useState<Set<string>>(new Set())
   const [loadingAccounts, setLoadingAccounts] = useState(true)
 
-  const ledgerAccounts = accounts.filter(account => activeAccountNames.has(account.name))
+  const ledgerAccounts = accounts.filter(account => activeAccountNames.has(account.name) || account.name === requestedAccount)
   const selectedName = ledgerAccounts.some(account => account.name === selected)
     ? selected
     : ledgerAccounts[0]?.name || ''
@@ -61,6 +87,11 @@ export default function Ledger({ onNavigate }: Props) {
       .finally(() => setLoading(false))
   }, [page, pageSize, selectedName])
 
+  useEffect(() => {
+    if (!selectedName) { setExportRows([]); return }
+    api.ledger(selectedName).then(setExportRows).catch(() => setExportRows([]))
+  }, [selectedName])
+
   const totalDr = rows.reduce((s, r) => s + r.dr, 0)
   const totalCr = rows.reduce((s, r) => s + r.cr, 0)
   const closingBalance = account?.balance ?? rows[rows.length - 1]?.balance ?? 0
@@ -89,19 +120,78 @@ export default function Ledger({ onNavigate }: Props) {
     )
   }
 
+  const debitNature = account.type === 'Asset' || account.type === 'Expense'
+  const debitExport: Array<{ particulars: string; amount: number }> = []
+  const creditExport: Array<{ particulars: string; amount: number }> = []
+  const opening = Number(account.opening_balance) || 0
+  const openingIsDebit = (debitNature && opening >= 0) || (!debitNature && opening < 0)
+  if (Math.abs(opening) >= 0.005) {
+    ;(openingIsDebit ? debitExport : creditExport).push({ particulars: `${openingIsDebit ? 'To' : 'By'} Balance b/d`, amount: Math.abs(opening) })
+  }
+  exportRows.forEach(row => {
+    if (row.debit) debitExport.push({ particulars: `To ${row.particulars} (${row.voucher_no})`, amount: row.debit })
+    if (row.credit) creditExport.push({ particulars: `By ${row.particulars} (${row.voucher_no})`, amount: row.credit })
+  })
+  const closingIsDebit = (debitNature && closingBalance >= 0) || (!debitNature && closingBalance < 0)
+  if (Math.abs(closingBalance) >= 0.005) {
+    ;(closingIsDebit ? creditExport : debitExport).push({
+      particulars: `${closingIsDebit ? 'By' : 'To'} Balance c/d`, amount: Math.abs(closingBalance),
+    })
+  }
+  const ledgerTotal = Math.max(
+    debitExport.reduce((sum, row) => sum + row.amount, 0),
+    creditExport.reduce((sum, row) => sum + row.amount, 0),
+  )
+  const ledgerExport = buildTraditionalTwoSidedExport('Dr.', 'Cr.', debitExport, creditExport, ledgerTotal)
+  const exportLedgers = async (accountNames: string[], format: 'pdf' | 'excel', traditional: boolean) => {
+    const selectedAccounts = ledgerAccounts.filter(item => accountNames.includes(item.name))
+    const ledgers = await Promise.all(selectedAccounts.map(async ledgerAccount => ({
+      account: ledgerAccount,
+      rows: await api.ledger(ledgerAccount.name),
+    })))
+    const reports = ledgers.map(item => ({ ...item, report: traditionalLedgerExport(item.account, item.rows) }))
+    const heading = accountNames.length === ledgerAccounts.length ? 'All Ledger Accounts' : 'Selected Ledger Accounts'
+    if (format === 'pdf') {
+      const html = reports.map(item => {
+        if (traditional) return `<section style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #cbd5e1"><h2>${escapeExportHtml(item.account.name)} Ledger</h2>${item.report.html}</section>`
+        return `<section style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #cbd5e1"><h2>${escapeExportHtml(item.account.name)} Ledger</h2><table><thead><tr><th>Date</th><th>Particulars</th><th>Voucher No.</th><th>Type</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>${item.rows.map(row => `<tr><td class="date-cell">${escapeExportHtml(row.date)}</td><td class="narration-cell">${escapeExportHtml(row.particulars)}</td><td>${escapeExportHtml(row.voucher_no)}</td><td>${escapeExportHtml(row.type)}</td><td class="num debit-cell">${row.debit ? formatReportNumber(row.debit) : ''}</td><td class="num credit-cell">${row.credit ? formatReportNumber(row.credit) : ''}</td><td class="num balance-cell">${formatReportNumber(row.balance)}</td></tr>`).join('')}<tr class="total-row"><td></td><td>Net Balance</td><td></td><td></td><td></td><td></td><td class="num balance-cell">${formatReportNumber(item.account.balance || 0)}</td></tr></tbody></table></section>`
+      }).join('')
+      exportElementAsPdf(heading, html)
+      return
+    }
+    const combined = traditional
+      ? reports.flatMap(item => [
+          { 'Dr. Particulars': `${item.account.name} Ledger`, 'Dr. Amount': '', 'Cr. Particulars': '', 'Cr. Amount': '' },
+          ...item.report.rows,
+          { 'Dr. Particulars': '', 'Dr. Amount': '', 'Cr. Particulars': '', 'Cr. Amount': '' },
+        ])
+      : reports.flatMap(item => item.rows.map(row => ({
+          Account: item.account.name, Date: row.date, Particulars: row.particulars, 'Voucher No.': row.voucher_no,
+          Type: row.type, Debit: row.debit, Credit: row.credit, Balance: row.balance,
+        })).concat([{
+          Account: item.account.name, Date: '', Particulars: 'Net Balance', 'Voucher No.': '',
+          Type: '', Debit: '', Credit: '', Balance: item.account.balance || 0,
+        }]))
+    exportRowsAsExcel('ledger-accounts', combined, heading)
+  }
+
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="ledger" />
         <div style={{ display: 'flex', gap: 8 }}>
           <AuditUncheckAllButton />
-          <ExportMenu title={`${account?.name || 'Ledger'} Ledger`} rows={rows.map(row => ({
-            date: row.date, particulars: row.particulars, voucher_no: row.voucherNo,
-            type: row.type, debit: row.dr, credit: row.cr, balance: row.balance,
-          }))} />
+          <ExportMenu compact fullReport rowsOnly title={`${account?.name || 'Ledger'} Ledger`}
+            traditionalRows={ledgerExport.rows} traditionalPdfHtml={ledgerExport.html}
+            allAccountsExport={{ label: 'All ledger accounts', pdf: traditional => exportLedgers(ledgerAccounts.map(item => item.name), 'pdf', traditional), excel: traditional => exportLedgers(ledgerAccounts.map(item => item.name), 'excel', traditional) }}
+            customAccountsExport={{ options: ledgerAccounts.map(item => item.name), pdf: (names, traditional) => exportLedgers(names, 'pdf', traditional), excel: (names, traditional) => exportLedgers(names, 'excel', traditional) }}
+            rows={[...exportRows.map(row => ({
+            Date: row.date, Particulars: row.particulars, 'Voucher No.': row.voucherNo,
+            Type: row.type, Debit: row.dr, Credit: row.cr, Balance: row.balance,
+          })), { Date: '', Particulars: 'Net Balance', 'Voucher No.': '', Type: '', Debit: '', Credit: '', Balance: closingBalance }]} />
           {onNavigate && canWrite && (
             <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => onNavigate('chart-of-accounts')}>
-              Add Ledger Account
+              <Plus size={14} /> Add Ledger Account
             </button>
           )}
         </div>
@@ -134,7 +224,7 @@ export default function Ledger({ onNavigate }: Props) {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: selectedName === a.name ? 600 : 400, color: selectedName === a.name ? '#1D4ED8' : '#0F172A' }}>{a.name}</div>
+                        <div style={{ fontSize: 13, fontWeight: selectedName === a.name ? 600 : 400, color: selectedName === a.name ? '#1D4ED8' : '#0F172A' }}><AccountDrilldown account={a.name} /></div>
                         <div className="narration-text">{a.group}</div>
                       </div>
                       {selectedName === a.name && <ChevronRight size={12} color="#2563EB" />}

@@ -9,6 +9,7 @@ import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type Voucher } from '../lib/api'
+import ConfirmModal from '../components/ConfirmModal'
 import { Spinner, TableSkeletonRows } from '../components/Loading'
 
 type VoucherType = 'Payment' | 'Receipt' | 'Contra' | 'Sales' | 'Purchase' | 'Journal'
@@ -75,6 +76,7 @@ export default function Vouchers() {
   const [typeCounts, setTypeCounts] = useState<Record<string, number>>({})
   const [reloadKey, setReloadKey] = useState(0)
   const [loadingRows, setLoadingRows] = useState(true)
+  const [deleteTarget, setDeleteTarget] = useState<Voucher | null>(null)
   const [form, setForm] = useState({
     voucher_no: '',
     date: new Date().toISOString().slice(0, 10),
@@ -113,7 +115,7 @@ export default function Vouchers() {
 
   const deleteVoucher = async (voucher: Voucher) => {
     const voucherNo = voucher.voucherNo || voucher.voucher_no
-    if (!window.confirm(`Delete voucher ${voucherNo}? This action cannot be undone.`)) return
+    setDeleteTarget(null)
     try {
       await api.deleteVoucher(voucher.backendId || voucher.id)
       if (selected?.backendId === voucher.backendId) setSelected(null)
@@ -176,14 +178,23 @@ export default function Vouchers() {
     return () => window.clearTimeout(timer)
   }, [page, pageSize, reloadKey, search, sortBy, typeFilter])
   const exportRows = filtered.map(row => ({
-    voucher_no: row.voucherNo || row.voucher_no, date: row.date, type: row.type,
-    party: row.party, mode: row.mode, amount: row.amount, status: row.status, narration: row.narration,
+    'Voucher No.': row.voucherNo || row.voucher_no, Date: row.date, Type: row.type,
+    Party: row.party, Mode: row.mode, Amount: row.amount, Status: row.status, Narration: row.narration,
   }))
 
   const summary = types.map(t => ({ type: t, count: typeCounts[t] || 0 }))
 
   return (
     <div>
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete voucher?"
+        message={`Delete voucher ${deleteTarget ? (deleteTarget.voucherNo || deleteTarget.voucher_no) : ''}? This action cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) void deleteVoucher(deleteTarget) }}
+      />
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="vouchers" />
         <div style={{ display: 'flex', gap: 8 }}><ExportMenu title="Vouchers" rows={exportRows} />{canWrite && (
@@ -270,11 +281,13 @@ export default function Vouchers() {
                   <td><span className={`badge ${v.status === 'Approved' ? 'badge-green' : 'badge-amber'}`}>{v.status === 'Approved' ? <CheckCircle size={10} /> : <Clock size={10} />} {v.status}</span></td>
                   <td style={{ maxWidth: 200 }}><span className="truncate narration-text" style={{ display: 'block' }}>{v.narration}</span></td>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-ghost" style={{ padding: 6 }} title="View voucher" aria-label="View voucher" onClick={() => setSelected(v)}><Eye size={14} /></button>
+                    <div className="table-action-icons">
+                    <button className="btn btn-ghost btn-icon" title="View voucher" aria-label="View voucher" onClick={() => setSelected(v)}><Eye size={14} /></button>
                     {canWrite && <>
-                      <button className="btn btn-ghost" style={{ padding: 6 }} title="Edit voucher" aria-label="Edit voucher" onClick={() => openEditForm(v)}><Pencil size={14} /></button>
-                      <button className="btn btn-ghost" style={{ padding: 6, color: '#DC2626' }} title="Delete voucher" aria-label="Delete voucher" onClick={() => void deleteVoucher(v)}><Trash2 size={14} /></button>
+                      <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit voucher" aria-label="Edit voucher" onClick={() => openEditForm(v)}><Pencil size={14} /></button>
+                      <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete voucher" aria-label="Delete voucher" onClick={() => setDeleteTarget(v)}><Trash2 size={14} /></button>
                     </>}
+                    </div>
                   </td>
                 </tr>
               ))}

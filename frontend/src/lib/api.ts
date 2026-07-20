@@ -126,6 +126,7 @@ export interface AdminCollection {
   name: string;
   default_selected: boolean;
   protected_default?: boolean;
+  document_count: number;
 }
 
 export interface CompanySettings {
@@ -146,12 +147,32 @@ export interface FiscalSettings {
   date_format: string;
   voucher_numbering: string;
 }
+
+export interface ClosingPreviewEntry {
+  system_entry_type: "PROFIT_TRANSFER" | "DRAWINGS_TRANSFER" | "RETIREMENT_PROFIT_TRANSFER" | "RETIREMENT_DRAWINGS_TRANSFER";
+  voucher_no: string;
+  date: string;
+  narration: string;
+  entries: Array<{ account: string; debit: number; credit: number }>;
+}
 export interface PartnerCapitalSettings {
   partner_name: string;
   account_name: string;
   account_code: string;
   share_percentage: number;
   opening_balance: number;
+  admission_date: string | null;
+  retirement_date: string | null;
+  retirement_share_percentage?: number | null;
+}
+export interface RetirementSettlementRequest {
+  partner_name: string;
+  account_name: string;
+  account_code: string;
+  share_percentage: number;
+  admission_date: string;
+  retirement_date: string;
+  profit_partners: Array<{ account_name: string; share_percentage: number }>;
 }
 
 export type NotificationSettings = Record<
@@ -321,6 +342,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  closingPreview: (closingDate: string) =>
+    request<{ entries: ClosingPreviewEntry[] }>(`/journal-entries/closing-preview?closing_date=${encodeURIComponent(closingDate)}`),
+  pendingClosingPreview: () =>
+    request<{ closing_date: string | null; entries: ClosingPreviewEntry[] }>("/journal-entries/pending-closing-preview"),
+  confirmClosingEntries: (closingDate: string, entries: Array<Pick<ClosingPreviewEntry, "system_entry_type" | "voucher_no" | "narration">>) =>
+    request<{ created: number; entries: ClosingPreviewEntry[] }>("/journal-entries/closing-confirm", {
+      method: "POST",
+      body: JSON.stringify({ closing_date: closingDate, entries }),
+    }),
   importJournalsExcel: (file: File, accountDefinitions?: Array<{ source_name: string; name: string; code: string; type: Account['type']; group: string }>) => {
     const body = new FormData()
     body.append('file', file)
@@ -410,6 +440,21 @@ export const api = {
     request<{ partners: PartnerCapitalSettings[] }>("/settings/partners", {
       method: "PATCH",
       body: JSON.stringify({ partners }),
+    }),
+  retirementSettlementPreview: (payload: RetirementSettlementRequest) =>
+    request<{ entries: ClosingPreviewEntry[] }>("/settings/partners/retirement-preview", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  confirmRetirementSettlement: (payload: RetirementSettlementRequest) =>
+    request<{ created: number; entries: ClosingPreviewEntry[]; loan_account: { name: string; code: string; type: 'Liability'; group: 'Current Liabilities' } }>("/settings/partners/retirement-confirm", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updatePartnerRetirementDate: (accountName: string, retirementDate: string) =>
+    request<{ updated: number; entries: ClosingPreviewEntry[] }>("/settings/partners/retirement-date", {
+      method: "PATCH",
+      body: JSON.stringify({ account_name: accountName, retirement_date: retirementDate }),
     }),
   updateNotificationSettings: (payload: NotificationSettings) =>
     request<NotificationSettings>("/settings/notifications", {

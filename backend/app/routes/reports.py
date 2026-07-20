@@ -261,6 +261,12 @@ async def ledger(account_name: str, _: dict = Depends(get_current_user)):
     debit_nature = not account or account.get("type") in {"Asset", "Expense"}
     rows = []
     for doc in journal_docs:
+        counterparts = [
+            str(entry.get("account", "")).strip()
+            for entry in doc.get("entries", [])
+            if entry.get("account") != account_name and str(entry.get("account", "")).strip()
+        ]
+        particulars = " / ".join(dict.fromkeys(counterparts)) or doc["narration"]
         for line in doc["entries"]:
             if line["account"] != account_name:
                 continue
@@ -268,7 +274,7 @@ async def ledger(account_name: str, _: dict = Depends(get_current_user)):
             balance += movement if debit_nature else -movement
             rows.append({
                 "date": doc["date"],
-                "particulars": doc["narration"],
+                "particulars": particulars,
                 "voucher_no": doc["voucher_no"],
                 "type": "Receipt" if line.get("debit", 0) else "Payment",
                 "debit": line.get("debit", 0),

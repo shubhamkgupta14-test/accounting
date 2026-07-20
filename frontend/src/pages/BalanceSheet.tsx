@@ -6,6 +6,8 @@ import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { useFinancialReport } from '../hooks/useFinancialReport'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
+import AccountDrilldown from '../components/AccountDrilldown'
+import { buildTraditionalTwoSidedExport } from '../lib/export'
 
 export default function BalanceSheet() {
   const { settings, formatMoney } = useAppSettings()
@@ -44,6 +46,12 @@ export default function BalanceSheet() {
   }
   const assetGroups = orderedGroups(assets, assetGroup, ['Fixed Assets', 'Non-current Assets', 'Current Assets', 'Cash', 'Bank'])
   const liabilityGroups = orderedGroups(liabilitiesAndCapital, liabilityGroup, ['Capital', 'Long-term Liabilities', 'Short-term Liabilities', 'Other Liabilities'])
+  const balanceSheetExport = buildTraditionalTwoSidedExport(
+    'Liabilities & Capital', 'Assets',
+    liabilitiesAndCapital.map(account => ({ particulars: account.name, amount: account.balance || 0 })),
+    assets.map(account => ({ particulars: account.name, amount: account.balance || 0 })),
+    Math.max(totalLiab, totalAssets),
+  )
 
   return (
     <div>
@@ -56,7 +64,7 @@ export default function BalanceSheet() {
             </span>
           )}
           <AuditUncheckAllButton />
-          <ExportMenu fullReport title="Balance Sheet" rows={[
+          <ExportMenu fullReport title="Balance Sheet" period={period} excelRows={balanceSheetExport.rows} pdfHtml={balanceSheetExport.html} rows={[
             ...assets.map(account => ({ side: 'Assets', group: account.group, account: account.name, amount: account.balance || 0 })),
             ...liabilitiesAndCapital.map(account => ({ side: 'Liabilities & Capital', group: account.group, account: account.name, amount: account.balance || 0 })),
           ]} />
@@ -97,7 +105,7 @@ export default function BalanceSheet() {
                     <tr key={group} style={{ background: '#F8FAFC' }}><td colSpan={2} style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>{group}</td></tr>
                     {rows.map(account => (
                       <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                        <td style={{ padding: '8px 20px 8px 32px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} />{account.name}</span></td>
+                        <td style={{ padding: '8px 20px 8px 32px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
                         <td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
@@ -118,7 +126,7 @@ export default function BalanceSheet() {
                     <tr key={group} style={{ background: '#F8FAFC' }}><td colSpan={2} style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>{group}</td></tr>
                     {rows.map(account => (
                       <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                        <td style={{ padding: '8px 20px 8px 32px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} />{account.name}</span></td>
+                        <td style={{ padding: '8px 20px 8px 32px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
                         <td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                       </tr>
                     ))}

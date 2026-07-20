@@ -150,7 +150,7 @@ export function DataProvider({ children, activePage }: { children: React.ReactNo
       const needsBank = ["bankbook", "cash-flow-report"].includes(activePage);
       const [accountRows, journalRows, voucherRows, cashRows, bankRows] =
         await Promise.all([
-          needsAccounts && accountsCacheRef.current.length === 0 ? api.accounts() : Promise.resolve(accountsCacheRef.current),
+          needsAccounts ? api.accounts() : Promise.resolve(accountsCacheRef.current),
           needsJournals ? api.journals() : Promise.resolve([]),
           Promise.resolve([]),
           needsCash ? api.transactions("cash") : Promise.resolve([]),

@@ -30,9 +30,58 @@ def test_cleanup_defaults_to_transactional_collections(client, login):
     assert response.status_code == 200
     rows = response.json()
     assert {row["name"] for row in rows if row["default_selected"]} == {
-        "inventory_movements", "journal_entries", "transactions", "vouchers",
+        "inventory_movements", "journal_entries", "partners", "transactions", "vouchers",
     }
     assert {"users", "accounts", "app_settings", "page_content"}.issubset({row["name"] for row in rows})
+
+
+def test_clean_partners_removes_settings_and_linked_ledgers(client, login):
+    login("superadmin")
+
+    async def seed():
+        from app.core.database import get_database
+
+        db = get_database()
+        await db.app_settings.update_one(
+            {"_id": "global"},
+            {"$set": {"partners": [{
+                "partner_name": "Clean Test",
+                "account_name": "Clean Test Capital",
+                "account_code": "PAR-CLEAN",
+                "share_percentage": 100,
+                "opening_balance": 0,
+                "admission_date": "2026-04-01",
+                "retirement_date": None,
+            }]}},
+            upsert=True,
+        )
+        await db.accounts.insert_many([
+            {"code": "PAR-CLEAN", "name": "Clean Test Capital", "type": "Equity", "group": "Capital", "opening_balance": 0, "is_active": True, "partner_capital": True},
+            {"code": "PAR-CLEAN-LOAN", "name": "Clean Test Loan", "type": "Liability", "group": "Current Liabilities", "opening_balance": 0, "is_active": True, "partner_loan": True},
+            {"code": "PAR-CLEAN-DRAW", "name": "Clean Test Drawings", "type": "Equity", "group": "Capital", "opening_balance": 0, "is_active": True, "partner_drawings": True},
+        ])
+
+    client.portal.call(seed)
+    listed = client.get("/api/admin/collections")
+    partner_row = next(row for row in listed.json() if row["name"] == "partners")
+    assert partner_row["document_count"] == 4
+
+    response = client.post("/api/admin/clean", json={"collections": ["partners"]})
+    assert response.status_code == 200
+    assert response.json()["deleted"]["partners"] == 4
+
+    async def verify():
+        from app.core.database import get_database
+
+        db = get_database()
+        settings = await db.app_settings.find_one({"_id": "global"})
+        assert settings["partners"] == []
+        assert await db.accounts.count_documents({"name": {"$in": [
+            "Clean Test Capital", "Clean Test Loan", "Clean Test Drawings",
+        ]}}) == 0
+        assert await db.accounts.count_documents({"name": "Cash"}) == 1
+
+    client.portal.call(verify)
 
 
 def test_admin_cannot_export_global_data(client, login):

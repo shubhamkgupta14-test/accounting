@@ -60,7 +60,7 @@ export default function AccountSelect({ accounts, value, onChange }: Props) {
             setQuery(next)
             setOpen(true)
             const exact = accounts.find(account => account.name.toLowerCase() === next.trim().toLowerCase())
-            onChange(exact?.name || '')
+            onChange(exact?.name || next)
           }}
           onKeyDown={event => {
             if (event.key === 'Enter' && open && filtered.length > 0) {

@@ -1,11 +1,12 @@
 from datetime import date, datetime, timezone
 from io import BytesIO
 import json
+import re
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from openpyxl import Workbook, load_workbook
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from fastapi.responses import StreamingResponse
 from typing import Literal
 from pymongo import ReturnDocument
@@ -20,25 +21,71 @@ from app.financial_reports import build_financial_report, get_financial_year
 router = APIRouter(prefix="/journal-entries", tags=["journal entries"])
 
 
-async def _post_profit_transfer(db, closing_date: date, current_user: dict) -> None:
+async def _next_system_voucher_no(db) -> str:
+    numbers = []
+    for value in await db.journal_entries.distinct("voucher_no"):
+        match = re.search(r"(\d+)$", str(value or ""))
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"SYS-{max(numbers, default=0) + 1:03d}"
+
+
+async def _system_voucher(db, system_entry_type: str, period, legacy_voucher: str):
+    existing = await db.journal_entries.find_one({
+        "system_entry_type": system_entry_type,
+        "$or": [
+            {"financial_year_start": period.start_date.isoformat()},
+            {"voucher_no": legacy_voucher},
+        ],
+    })
+    voucher_no = (
+        existing.get("voucher_no")
+        if existing and str(existing.get("voucher_no", "")).startswith("SYS-")
+        else await _next_system_voucher_no(db)
+    )
+    return existing, voucher_no
+
+
+async def _post_profit_transfer(db, closing_date: date, current_user: dict, *, persist: bool = True, voucher_override: str | None = None, narration_override: str | None = None):
     """Create or refresh the FY profit-to-capital journal after stock closing."""
     period = get_financial_year(closing_date)
     statement = await build_financial_report(db, period)
     profit = round(float(statement["profit_and_loss"]["net_profit"]), 2)
-    voucher_no = f"PROFIT-TRANSFER-{period.start_date.year}-{str(period.end_date.year)[-2:]}"
+    retirement_allocations = await db.journal_entries.aggregate([
+        {"$match": {
+            "date": {"$gte": period.start_date.isoformat(), "$lte": period.end_date.isoformat()},
+            "status": "Posted", "system_entry_type": "RETIREMENT_PROFIT_TRANSFER",
+        }},
+        {"$unwind": "$entries"},
+        {"$match": {"entries.account": "Profit & Loss Account"}},
+        {"$group": {"_id": None, "debit": {"$sum": "$entries.debit"}, "credit": {"$sum": "$entries.credit"}}},
+    ]).to_list(length=1)
+    if retirement_allocations:
+        allocated = float(retirement_allocations[0].get("debit", 0) or 0) - float(retirement_allocations[0].get("credit", 0) or 0)
+        profit = round(profit - allocated, 2)
+    legacy_voucher = f"PROFIT-TRANSFER-{period.start_date.year}-{str(period.end_date.year)[-2:]}"
+    existing, voucher_no = await _system_voucher(db, "PROFIT_TRANSFER", period, legacy_voucher)
     if abs(profit) < .005:
-        await db.journal_entries.delete_one({"voucher_no": voucher_no, "system_entry_type": "PROFIT_TRANSFER"})
-        return
+        if persist and existing:
+            await db.journal_entries.delete_one({"_id": existing["_id"]})
+        return None
 
     saved_settings = await db.app_settings.find_one({"_id": "global"}, {"partners": 1}) or {}
     configured_partners = saved_settings.get("partners", [])
     capital_accounts = []
     for partner in configured_partners:
+        admission_date = str(partner.get("admission_date") or "")
+        retirement_date = str(partner.get("retirement_date") or "")
+        share = float(partner.get("share_percentage", 0) or 0)
+        if share <= 0 or (admission_date and admission_date > closing_date.isoformat()) or (
+            retirement_date and retirement_date <= closing_date.isoformat()
+        ):
+            continue
         account = await db.accounts.find_one({
             "name": partner.get("account_name"), "type": "Equity", "group": "Capital"
         })
         if account:
-            capital_accounts.append((account, float(partner.get("share_percentage", 0))))
+            capital_accounts.append((account, share))
     if not capital_accounts:
         capital = await db.accounts.find_one({"name": "Capital", "type": "Equity"})
         if capital is None:
@@ -50,14 +97,15 @@ async def _post_profit_transfer(db, closing_date: date, current_user: dict) -> N
     if not capital_accounts:
         raise HTTPException(status_code=400, detail="Create a Capital equity account before closing stock")
 
-    await db.accounts.update_one(
-        {"name": "Profit & Loss Account"},
-        {"$setOnInsert": {
-            "code": "SYS-PNL", "name": "Profit & Loss Account", "type": "Equity",
-            "group": "Capital", "opening_balance": 0.0, "is_active": True,
-        }},
-        upsert=True,
-    )
+    if persist:
+        await db.accounts.update_one(
+            {"name": "Profit & Loss Account"},
+            {"$setOnInsert": {
+                "code": "SYS-PNL", "name": "Profit & Loss Account", "type": "Equity",
+                "group": "Capital", "opening_balance": 0.0, "is_active": True,
+            }},
+            upsert=True,
+        )
     amount = abs(profit)
     allocations = []
     allocated = 0.0
@@ -72,29 +120,37 @@ async def _post_profit_transfer(db, closing_date: date, current_user: dict) -> N
         entries = [{"account": name, "debit": value, "credit": 0.0} for name, value in allocations]
         entries.append({"account": "Profit & Loss Account", "debit": 0.0, "credit": amount})
     now = datetime.now(timezone.utc)
+    document = {
+        "voucher_no": voucher_override or voucher_no,
+        "date": closing_date.isoformat(),
+        "narration": narration_override or f"Being net {'profit' if profit > 0 else 'loss'} for FY {period.start_date.year}-{str(period.end_date.year)[-2:]} transferred to Capital.",
+        "entries": entries, "status": "Posted", "system_entry_type": "PROFIT_TRANSFER",
+        "financial_year_start": period.start_date.isoformat(),
+        "posted_by": current_user["id"], "posted_at": now,
+    }
+    if not persist:
+        return document
     await db.journal_entries.update_one(
-        {"voucher_no": voucher_no},
-        {"$set": {
-            "date": closing_date.isoformat(),
-            "narration": f"Being net {'profit' if profit > 0 else 'loss'} transferred to Capital.",
-            "entries": entries, "status": "Posted", "system_entry_type": "PROFIT_TRANSFER",
-            "posted_by": current_user["id"], "posted_at": now,
-        }, "$setOnInsert": {"created_by": current_user["id"], "created_at": now}},
+        ({"_id": existing["_id"]} if existing else {"voucher_no": voucher_no}),
+        {"$set": document, "$setOnInsert": {"created_by": current_user["id"], "created_at": now}},
         upsert=True,
     )
+    return document
 
 
-async def _post_drawings_transfer(db, closing_date: date, current_user: dict) -> None:
-    """Close all FY Drawings ledgers into Capital on the financial-year end."""
+async def _post_drawings_transfer(db, closing_date: date, current_user: dict, *, persist: bool = True, voucher_override: str | None = None, narration_override: str | None = None):
+    """Close FY Drawings into the matching proprietor or partner Capital ledgers."""
     period = get_financial_year(closing_date)
-    voucher_no = f"DRAWINGS-TRANSFER-{period.start_date.year}-{str(period.end_date.year)[-2:]}"
+    legacy_voucher = f"DRAWINGS-TRANSFER-{period.start_date.year}-{str(period.end_date.year)[-2:]}"
+    existing, voucher_no = await _system_voucher(db, "DRAWINGS_TRANSFER", period, legacy_voucher)
     drawings_accounts = await db.accounts.find({
         "type": "Equity", "group": "Capital", "name": {"$regex": "drawings?", "$options": "i"}
     }).sort("code", 1).to_list(length=None)
     names = [account["name"] for account in drawings_accounts]
     if not names:
-        await db.journal_entries.delete_one({"voucher_no": voucher_no, "system_entry_type": "DRAWINGS_TRANSFER"})
-        return
+        if persist and existing:
+            await db.journal_entries.delete_one({"_id": existing["_id"]})
+        return None
 
     rows = await db.journal_entries.aggregate([
         {"$match": {
@@ -117,33 +173,106 @@ async def _post_drawings_transfer(db, closing_date: date, current_user: dict) ->
     drawings = [(name, amount) for name, amount in drawings if amount >= .005]
     total = round(sum(amount for _, amount in drawings), 2)
     if total < .005:
-        await db.journal_entries.delete_one({"voucher_no": voucher_no, "system_entry_type": "DRAWINGS_TRANSFER"})
-        return
+        if persist and existing:
+            await db.journal_entries.delete_one({"_id": existing["_id"]})
+        return None
 
-    capital = await db.accounts.find_one({"name": "Capital", "type": "Equity"})
-    if capital is None:
-        raise HTTPException(status_code=400, detail="Create a Capital equity account before closing drawings")
-    entries = [{"account": capital["name"], "debit": total, "credit": 0.0}]
+    saved_settings = await db.app_settings.find_one({"_id": "global"}, {"partners": 1}) or {}
+    configured_partners = saved_settings.get("partners", [])
+    capital_totals: dict[str, float] = {}
+    if configured_partners:
+        def normalized(value: str) -> str:
+            return "".join(character for character in value.casefold() if character.isalnum())
+
+        for drawing_name, amount in drawings:
+            drawing_key = normalized(drawing_name)
+            matches = []
+            for partner in configured_partners:
+                partner_key = normalized(str(partner.get("partner_name", "")))
+                capital_key = normalized(str(partner.get("account_name", "")).replace("Capital", ""))
+                if (partner_key and partner_key in drawing_key) or (capital_key and capital_key in drawing_key):
+                    matches.append(partner)
+            # A single configured partner owns every drawings ledger in a sole-partner setup.
+            if len(configured_partners) == 1 and not matches:
+                matches = configured_partners
+            if len(matches) != 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Unable to match Drawings account '{drawing_name}' to one partner. "
+                        "Include the configured partner name in the Drawings account name."
+                    ),
+                )
+            capital_name = str(matches[0].get("account_name", "")).strip()
+            capital = await db.accounts.find_one({
+                "name": capital_name, "type": "Equity", "group": "Capital",
+            })
+            if capital is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Create the configured partner Capital account '{capital_name}' before closing drawings",
+                )
+            capital_totals[capital_name] = round(capital_totals.get(capital_name, 0.0) + amount, 2)
+    else:
+        capital = await db.accounts.find_one({"name": "Capital", "type": "Equity"})
+        if capital is None:
+            raise HTTPException(status_code=400, detail="Create a Capital equity account before closing drawings")
+        capital_totals[capital["name"]] = total
+
+    entries = [
+        {"account": capital_name, "debit": amount, "credit": 0.0}
+        for capital_name, amount in capital_totals.items()
+    ]
     entries.extend(
         {"account": name, "debit": 0.0, "credit": amount}
         for name, amount in drawings
     )
     now = datetime.now(timezone.utc)
+    document = {
+        "voucher_no": voucher_override or voucher_no,
+        "date": period.end_date.isoformat(),
+        "narration": narration_override or f"Being drawings for FY {period.start_date.year}-{str(period.end_date.year)[-2:]} transferred to the respective Capital account(s) at financial year end.",
+        "entries": entries, "status": "Posted", "system_entry_type": "DRAWINGS_TRANSFER",
+        "financial_year_start": period.start_date.isoformat(),
+        "posted_by": current_user["id"], "posted_at": now,
+    }
+    if not persist:
+        return document
     await db.journal_entries.update_one(
-        {"voucher_no": voucher_no},
-        {"$set": {
-            "date": period.end_date.isoformat(),
-            "narration": "Being drawings transferred to Capital at financial year end.",
-            "entries": entries, "status": "Posted", "system_entry_type": "DRAWINGS_TRANSFER",
-            "posted_by": current_user["id"], "posted_at": now,
-        }, "$setOnInsert": {"created_by": current_user["id"], "created_at": now}},
+        ({"_id": existing["_id"]} if existing else {"voucher_no": voucher_no}),
+        {"$set": document, "$setOnInsert": {"created_by": current_user["id"], "created_at": now}},
         upsert=True,
     )
+    return document
 
 
 def _is_closing_stock(payload: JournalEntryCreate) -> bool:
     closing_names = {"closing stock", "stock-in-hand", "stock in hand"}
     return any(line.account.strip().lower() in closing_names and line.debit > 0 for line in payload.entries)
+
+
+class ClosingEntryOverride(BaseModel):
+    system_entry_type: Literal["PROFIT_TRANSFER", "DRAWINGS_TRANSFER"]
+    voucher_no: str = Field(min_length=1, max_length=50)
+    narration: str = Field(min_length=1, max_length=500)
+
+
+class ClosingConfirmation(BaseModel):
+    closing_date: date
+    entries: list[ClosingEntryOverride] = Field(max_length=2)
+
+
+async def _require_closing_stock_entry(db, closing_date: date) -> None:
+    exists = await db.journal_entries.find_one({
+        "date": closing_date.isoformat(),
+        "status": "Posted",
+        "entries": {"$elemMatch": {
+            "account": {"$regex": r"^(closing stock|stock-in-hand|stock in hand)$", "$options": "i"},
+            "debit": {"$gt": 0},
+        }},
+    })
+    if not exists:
+        raise HTTPException(status_code=409, detail="Post the Closing Stock journal before confirming year-end entries")
 
 
 def _excel_date(value) -> date:
@@ -254,9 +383,6 @@ async def create_journal_entry(payload: JournalEntryCreate, current_user=Depends
     doc["posted_by"] = current_user["id"]
     doc["posted_at"] = datetime.now(timezone.utc)
     result = await db.journal_entries.insert_one(doc)
-    if _is_closing_stock(payload):
-        await _post_profit_transfer(db, payload.date, current_user)
-        await _post_drawings_transfer(db, payload.date, current_user)
     return serialize_doc(await db.journal_entries.find_one({"_id": result.inserted_id}))
 
 
@@ -407,6 +533,110 @@ async def preview_journal_excel(
     existing = set(await get_database().accounts.distinct("name", {"name": {"$in": list(names)}}))
     unknown = sorted(names - existing)
     return {"unknown_ledgers": [_suggest_account(name, index) for index, name in enumerate(unknown, start=1)]}
+
+
+@router.get("/closing-preview")
+async def preview_closing_entries(
+    closing_date: date,
+    current_user=Depends(require_roles("superadmin", "admin")),
+):
+    db = get_database()
+    await _require_closing_stock_entry(db, closing_date)
+    candidates = [
+        await _post_profit_transfer(db, closing_date, current_user, persist=False),
+        await _post_drawings_transfer(db, closing_date, current_user, persist=False),
+    ]
+    candidates = [item for item in candidates if item]
+    next_number = int((await _next_system_voucher_no(db)).split("-")[-1])
+    for index, item in enumerate(candidates):
+        existing = await db.journal_entries.find_one({
+            "system_entry_type": item["system_entry_type"],
+            "financial_year_start": item["financial_year_start"],
+        })
+        item["voucher_no"] = existing.get("voucher_no") if existing else f"SYS-{next_number + index:03d}"
+        item.pop("posted_by", None)
+        item.pop("posted_at", None)
+    return {"entries": candidates}
+
+
+@router.get("/pending-closing-preview")
+async def pending_closing_entries(
+    current_user=Depends(require_roles("superadmin", "admin")),
+):
+    """Recover the latest year-end preview when Closing Stock was posted but transfers were not confirmed."""
+    db = get_database()
+    stock_names = re.compile(r"^(closing stock|stock-in-hand|stock in hand)$", re.IGNORECASE)
+    closing_journals = await db.journal_entries.find({
+        "status": "Posted",
+        "entries": {"$elemMatch": {"account": stock_names, "debit": {"$gt": 0}}},
+    }, {"date": 1}).sort("date", -1).to_list(length=50)
+    for closing_date_value in dict.fromkeys(str(row.get("date", ""))[:10] for row in closing_journals):
+        try:
+            closing_date = date.fromisoformat(closing_date_value)
+        except ValueError:
+            continue
+        period = get_financial_year(closing_date)
+        confirmed_types = set(await db.journal_entries.distinct("system_entry_type", {
+            "financial_year_start": period.start_date.isoformat(),
+            "system_entry_type": {"$in": ["PROFIT_TRANSFER", "DRAWINGS_TRANSFER"]},
+        }))
+        candidates = []
+        if "PROFIT_TRANSFER" not in confirmed_types:
+            candidate = await _post_profit_transfer(db, closing_date, current_user, persist=False)
+            if candidate:
+                candidates.append(candidate)
+        if "DRAWINGS_TRANSFER" not in confirmed_types:
+            candidate = await _post_drawings_transfer(db, closing_date, current_user, persist=False)
+            if candidate:
+                candidates.append(candidate)
+        if not candidates:
+            continue
+        next_number = int((await _next_system_voucher_no(db)).split("-")[-1])
+        for index, item in enumerate(candidates):
+            item["voucher_no"] = f"SYS-{next_number + index:03d}"
+            item.pop("posted_by", None)
+            item.pop("posted_at", None)
+        return {"closing_date": closing_date_value, "entries": candidates}
+    return {"closing_date": None, "entries": []}
+
+
+@router.post("/closing-confirm")
+async def confirm_closing_entries(
+    payload: ClosingConfirmation,
+    current_user=Depends(require_roles("superadmin", "admin")),
+):
+    db = get_database()
+    await _require_closing_stock_entry(db, payload.closing_date)
+    requested = {item.system_entry_type: item for item in payload.entries}
+    if len(requested) != len(payload.entries):
+        raise HTTPException(status_code=422, detail="Each closing entry type can be confirmed only once")
+    financial_year_start = get_financial_year(payload.closing_date).start_date.isoformat()
+    for item in payload.entries:
+        duplicate = await db.journal_entries.find_one({"voucher_no": item.voucher_no})
+        belongs_to_same_entry = duplicate and (
+            duplicate.get("system_entry_type") == item.system_entry_type
+            and duplicate.get("financial_year_start") == financial_year_start
+        )
+        if duplicate and not belongs_to_same_entry:
+            raise HTTPException(status_code=409, detail=f"Voucher number {item.voucher_no} already exists")
+    saved = []
+    if "PROFIT_TRANSFER" in requested:
+        item = requested["PROFIT_TRANSFER"]
+        result = await _post_profit_transfer(
+            db, payload.closing_date, current_user,
+            voucher_override=item.voucher_no, narration_override=item.narration,
+        )
+        if result:
+            saved.append(result)
+    if "DRAWINGS_TRANSFER" in requested:
+        item = requested["DRAWINGS_TRANSFER"]
+        result = await _post_drawings_transfer(
+            db, payload.closing_date, current_user,
+            voucher_override=item.voucher_no, narration_override=item.narration,
+        )
+        if result:
+            saved.append(result)
+    return {"created": len(saved), "entries": saved}
 
 
 @router.get("/import-excel/sample")

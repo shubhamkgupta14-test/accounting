@@ -5,12 +5,14 @@ import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import PasswordInput from '../components/PasswordInput'
 import { UserManagementSkeleton } from '../components/Loading'
+import ConfirmModal from '../components/ConfirmModal'
 
 export default function UserManagement() {
   const { showToast } = useToast()
   const [users, setUsers] = useState<AuthUser[]>([])
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', role: 'user' as UserRole })
   const [loading, setLoading] = useState(true)
+  const [deleteTarget, setDeleteTarget] = useState<AuthUser | null>(null)
 
   const load = async () => {
     try { setUsers(await api.users()) }
@@ -35,14 +37,29 @@ export default function UserManagement() {
   }
 
   const remove = async (user: AuthUser) => {
-    await api.deleteUser(user.id)
-    await load()
+    setDeleteTarget(null)
+    try {
+      await api.deleteUser(user.id)
+      await load()
+      showToast('success', 'User deleted.')
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to delete user.')
+    }
   }
 
   if (loading) return <UserManagementSkeleton />
 
   return (
     <div>
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete user?"
+        message={`Delete ${deleteTarget ? `${deleteTarget.first_name} ${deleteTarget.last_name}` : 'this user'}? This action cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) void remove(deleteTarget) }}
+      />
       <div className="page-header">
         <PageIntro id="user-management" />
       </div>
@@ -75,11 +92,11 @@ export default function UserManagement() {
                 <td><span className={`badge ${user.is_active === false ? 'badge-red' : 'badge-green'}`}>{user.is_active === false ? 'Inactive' : 'Active'}</span></td>
                 <td className="mono">{user.created_at || '-'}</td>
                 <td style={{ textAlign: 'center' }}>
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 6 }}>
+                  <div className="table-action-icons">
                     {user.is_active === false
-                      ? <button className="btn btn-ghost" title="Activate" onClick={() => setStatus(user, true)}><UserCheck size={14} /></button>
-                      : <button className="btn btn-ghost" title="Deactivate" onClick={() => setStatus(user, false)}><UserX size={14} /></button>}
-                    <button className="btn btn-ghost" style={{ color: '#EF4444' }} title="Delete" onClick={() => remove(user)}><Trash2 size={14} /></button>
+                      ? <button className="btn btn-ghost btn-icon btn-icon-success" title="Activate" onClick={() => setStatus(user, true)}><UserCheck size={14} /></button>
+                      : <button className="btn btn-ghost btn-icon btn-icon-warning" title="Deactivate" onClick={() => setStatus(user, false)}><UserX size={14} /></button>}
+                    <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete" onClick={() => setDeleteTarget(user)}><Trash2 size={14} /></button>
                   </div>
                 </td>
               </tr>

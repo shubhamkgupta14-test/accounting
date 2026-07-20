@@ -4,15 +4,18 @@ import ExportMenu from '../components/ExportMenu'
 import TablePagination from '../components/TablePagination'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
-import { api, type JournalEntry } from '../lib/api'
+import { api, type JournalEntry, type ReportPeriod } from '../lib/api'
 import { DayBookSkeleton } from '../components/Loading'
 
 
 export default function DayBook() {
   const { currencySymbol } = useAppSettings()
   const [search, setSearch] = useState('')
+  const [dateFilter, setDateFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [financialYears, setFinancialYears] = useState<ReportPeriod[]>([])
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [entries, setEntries] = useState<JournalEntry[]>([])
@@ -20,15 +23,22 @@ export default function DayBook() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    api.financialYears().then(result => setFinancialYears(result.periods)).catch(() => setFinancialYears([]))
+  }, [])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
-      void api.journalsPage({ page, page_size: pageSize, search, date_from: dateFrom || undefined, date_to: dateTo || undefined, sort_by: 'date', sort_order: 'desc' })
+      const selectedFy = financialYears.find(period => period.start_date === dateFilter)
+      const filterFrom = dateFilter === 'custom' ? dateFrom || undefined : selectedFy?.start_date
+      const filterTo = dateFilter === 'custom' ? dateTo || undefined : selectedFy?.end_date
+      void api.journalsPage({ page, page_size: pageSize, search, date_from: filterFrom, date_to: filterTo, sort_by: 'date', sort_order: sortOrder })
         .then(result => {
           setEntries(result.items.map(row => ({ ...row, voucherNo: row.voucher_no, entries: row.entries.map(line => ({ ...line, dr: line.debit, cr: line.credit })) })))
           setTotal(result.total)
         }).finally(() => setLoading(false))
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [dateFrom, dateTo, page, pageSize, search])
+  }, [dateFilter, dateFrom, dateTo, financialYears, page, pageSize, search, sortOrder])
 
   const paged = entries.map(e => ({
     ...e,
@@ -40,6 +50,12 @@ export default function DayBook() {
     acc[e.date].push(e)
     return acc
   }, {})
+  const selectedFinancialPeriod = financialYears.find(period => period.start_date === dateFilter)
+  const exportPeriodHeading = dateFilter === 'custom'
+    ? `${dateFrom || 'Beginning'} to ${dateTo || 'Present'}`
+    : selectedFinancialPeriod
+      ? `FY ${selectedFinancialPeriod.start_date.slice(0, 4)}-${selectedFinancialPeriod.end_date.slice(2, 4)}`
+      : 'All financial years'
 
   if (loading) return <DayBookSkeleton />
 
@@ -47,27 +63,34 @@ export default function DayBook() {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="daybook" />
-        <ExportMenu title="Day Book" rows={paged.map(row => ({
-          date: row.date,
-          voucher_no: row.voucherNo,
-          narration: row.narration,
-          debit: row.totalDr,
-          credit: row.totalCr,
-          status: row.status,
+        <ExportMenu compact fullReport rowsOnly title="Day Book" heading={exportPeriodHeading} rows={paged.map(row => ({
+          Date: row.date,
+          'Voucher No.': row.voucherNo,
+          Narration: row.narration,
+          Accounts: row.entries.length,
+          [`Debit (${currencySymbol})`]: row.totalDr,
+          [`Credit (${currencySymbol})`]: row.totalCr,
         }))} />
       </div>
 
       {/* Filters */}
       <div className="card" style={{ padding: '14px 20px', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Calendar size={14} color="#64748B" />
-          <label style={{ fontSize: 12.5, color: '#64748B' }}>From</label>
-          <input type="date" className="input" style={{ height: 34 }} value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }} />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ fontSize: 12.5, color: '#64748B' }}>To</label>
-          <input type="date" className="input" style={{ height: 34 }} value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1) }} />
-        </div>
+        <Calendar size={14} color="#64748B" />
+        <select className="select" style={{ fontSize: 13 }} value={sortOrder} onChange={e => { setSortOrder(e.target.value as 'asc' | 'desc'); setPage(1) }}>
+          <option value="desc">Newest date</option><option value="asc">Oldest date</option>
+        </select>
+        <select className="select" style={{ fontSize: 13 }} value={dateFilter} onChange={e => { setDateFilter(e.target.value); setPage(1) }} aria-label="Financial year">
+          <option value="all">All financial years</option>
+          {financialYears.map(period => {
+            const start = Number(period.start_date.slice(0, 4))
+            return <option key={period.start_date} value={period.start_date}>FY {start}-{String(start + 1).slice(-2)}</option>
+          })}
+          <option value="custom">Custom range</option>
+        </select>
+        {dateFilter === 'custom' && <>
+          <input type="date" min="1000-01-01" max="9999-12-31" aria-label="From date" className="input" style={{ width: 142, height: 34, fontSize: 13 }} value={dateFrom} onChange={e => { if (!e.target.value || /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) { setDateFrom(e.target.value); setPage(1) } }} />
+          <input type="date" min={dateFrom || '1000-01-01'} max="9999-12-31" aria-label="To date" className="input" style={{ width: 142, height: 34, fontSize: 13 }} value={dateTo} onChange={e => { if (!e.target.value || /^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) { setDateTo(e.target.value); setPage(1) } }} />
+        </>}
         <div style={{ position: 'relative', flex: 1, maxWidth: 280 }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
           <input className="input" style={{ paddingLeft: 30, height: 34, fontSize: 13 }}
@@ -79,7 +102,7 @@ export default function DayBook() {
       </div>
 
       {/* Grouped by date */}
-      {Object.entries(groupedByDate).sort().map(([date, entries]) => (
+      {Object.entries(groupedByDate).sort(([left], [right]) => sortOrder === 'asc' ? left.localeCompare(right) : right.localeCompare(left)).map(([date, entries]) => (
         <div key={date} style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: '#64748B', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -99,7 +122,6 @@ export default function DayBook() {
                   <th>Accounts</th>
                   <th className="num dr-heading">Debit ({currencySymbol})</th>
                   <th className="num cr-heading">Credit ({currencySymbol})</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -111,14 +133,12 @@ export default function DayBook() {
                       <td style={{ fontSize: 12.5, color: '#64748B' }}>{e.entries.length} lines</td>
                       <td className="num dr-amount" style={{ fontWeight: 500 }}>{e.totalDr.toLocaleString('en-IN')}</td>
                       <td className="num cr-amount" style={{ fontWeight: 500 }}>{e.totalCr.toLocaleString('en-IN')}</td>
-                      <td><span className={`badge ${e.status === 'Posted' ? 'badge-green' : 'badge-amber'}`}>{e.status}</span></td>
                     </tr>
                     {/* Sub-lines */}
                     {e.entries.map((row, i) => (
                       <tr key={`${e.id}-row-${i}`} style={{ background: '#FAFBFC' }}>
                         <td style={{ paddingLeft: 32, color: '#94A3B8', fontSize: 12 }}>↳</td>
                         <td style={{ paddingLeft: 32, fontSize: 12.5, color: '#475569', fontStyle: 'italic' }}>{row.account}</td>
-                        <td />
                         <td className="num" style={{ fontSize: 12.5, color: row.dr ? '#059669' : '#CBD5E1' }}>{row.dr ? row.dr.toLocaleString('en-IN') : '—'}</td>
                         <td className="num" style={{ fontSize: 12.5, color: row.cr ? '#DC2626' : '#CBD5E1' }}>{row.cr ? row.cr.toLocaleString('en-IN') : '—'}</td>
                         <td />

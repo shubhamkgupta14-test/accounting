@@ -121,13 +121,32 @@ def test_closing_stock_posts_profit_transfer_to_capital(client, login):
     assert closing.status_code == 201
 
     journals = client.get("/api/journal-entries").json()
-    transfer = next(row for row in journals if row["voucher_no"] == "PROFIT-TRANSFER-2030-31")
+    assert not any(row.get("system_entry_type") in {"PROFIT_TRANSFER", "DRAWINGS_TRANSFER"} and row.get("financial_year_start") == "2030-04-01" for row in journals)
+    preview = client.get("/api/journal-entries/closing-preview?closing_date=2031-03-31")
+    assert preview.status_code == 200
+    proposed = preview.json()["entries"]
+    assert {row["system_entry_type"] for row in proposed} == {"PROFIT_TRANSFER", "DRAWINGS_TRANSFER"}
+    confirmed = client.post("/api/journal-entries/closing-confirm", json={
+        "closing_date": "2031-03-31",
+        "entries": [{
+            "system_entry_type": row["system_entry_type"],
+            "voucher_no": row["voucher_no"],
+            "narration": row["narration"],
+        } for row in proposed],
+    })
+    assert confirmed.status_code == 200
+    assert confirmed.json()["created"] == 2
+
+    journals = client.get("/api/journal-entries").json()
+    transfer = next(row for row in journals if row.get("system_entry_type") == "PROFIT_TRANSFER" and row.get("financial_year_start") == "2030-04-01")
+    assert transfer["voucher_no"].startswith("SYS-")
     assert transfer["system_entry_type"] == "PROFIT_TRANSFER"
     assert transfer["entries"] == [
         {"account": "Profit & Loss Account", "debit": 700.0, "credit": 0.0},
         {"account": "Capital", "debit": 0.0, "credit": 700.0},
     ]
-    drawings_transfer = next(row for row in journals if row["voucher_no"] == "DRAWINGS-TRANSFER-2030-31")
+    drawings_transfer = next(row for row in journals if row.get("system_entry_type") == "DRAWINGS_TRANSFER" and row.get("financial_year_start") == "2030-04-01")
+    assert drawings_transfer["voucher_no"].startswith("SYS-")
     assert drawings_transfer["date"] == "2031-03-31"
     assert drawings_transfer["entries"] == [
         {"account": "Capital", "debit": 100.0, "credit": 0.0},
@@ -142,7 +161,7 @@ def test_closing_stock_posts_profit_transfer_to_capital(client, login):
     assert all(row["name"] != "Profit & Loss Account" for row in report["trial_balance"]["rows"])
 
     capital_ledger = client.get("/api/reports/ledger/Capital").json()
-    assert any(row["voucher_no"] == "PROFIT-TRANSFER-2030-31" and row["credit"] == 700.0 for row in capital_ledger)
+    assert any(row["voucher_no"] == transfer["voucher_no"] and row["credit"] == 700.0 for row in capital_ledger)
 
     next_year = client.get(
         "/api/reports/financial-statements?start_date=2031-04-01&end_date=2032-03-31"

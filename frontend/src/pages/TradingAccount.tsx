@@ -6,6 +6,8 @@ import { useAppSettings } from '../context/SettingsContext'
 import { Scale, TrendingDown, TrendingUp } from 'lucide-react'
 import { useFinancialReport } from '../hooks/useFinancialReport'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
+import AccountDrilldown from '../components/AccountDrilldown'
+import { buildTraditionalTwoSidedExport } from '../lib/export'
 
 export default function TradingAccount() {
   const { settings, formatMoney } = useAppSettings()
@@ -15,6 +17,17 @@ export default function TradingAccount() {
   const debitTotal = openingStock + directExpenses.reduce((sum, account) => sum + (account.balance || 0), 0)
   const creditTotal = closingStock + directIncome.reduce((sum, account) => sum + (account.balance || 0), 0)
   const grandTotal = Math.max(debitTotal + Math.max(grossProfit, 0), creditTotal + Math.max(-grossProfit, 0))
+  const debitExport = [
+    ...(openingStock !== 0 ? [{ particulars: 'To Opening Stock', amount: openingStock }] : []),
+    ...directExpenses.map(account => ({ particulars: `To ${account.name}`, amount: account.balance || 0 })),
+    ...(grossProfit > 0 ? [{ particulars: 'To Gross Profit c/d', amount: grossProfit }] : []),
+  ]
+  const creditExport = [
+    ...directIncome.map(account => ({ particulars: `By ${account.name}`, amount: account.balance || 0 })),
+    ...(closingStock !== 0 ? [{ particulars: 'By Closing Stock', amount: closingStock }] : []),
+    ...(grossProfit < 0 ? [{ particulars: 'By Gross Loss c/d', amount: Math.abs(grossProfit) }] : []),
+  ]
+  const tradingExport = buildTraditionalTwoSidedExport('Dr.', 'Cr.', debitExport, creditExport, grandTotal)
 
   return (
     <div>
@@ -22,7 +35,7 @@ export default function TradingAccount() {
         <PageIntro id="trading" />
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <AuditUncheckAllButton />
-        <ExportMenu fullReport title="Trading Account" rows={[
+        <ExportMenu fullReport title="Trading Account" period={period} excelRows={tradingExport.rows} pdfHtml={tradingExport.html} rows={[
           ...(openingStock !== 0 ? [{ side: 'Debit', account: 'Opening Stock', amount: openingStock }] : []),
           ...directExpenses.map(account => ({ side: 'Debit', account: account.name, amount: account.balance || 0 })),
           ...directIncome.map(account => ({ side: 'Credit', account: account.name, amount: account.balance || 0 })),
@@ -68,7 +81,7 @@ export default function TradingAccount() {
                 )}
                 {directExpenses.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                    <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} />{account.name}</span></td>
+                    <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
                     <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 ))}
@@ -89,7 +102,7 @@ export default function TradingAccount() {
               <tbody>
                 {directIncome.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                    <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} />{account.name}</span></td>
+                    <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
                     <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 ))}

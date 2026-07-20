@@ -14,6 +14,7 @@ import { useFinancialReport } from "../hooks/useFinancialReport";
 import AuditCheckbox, {
   AuditUncheckAllButton,
 } from "../components/AuditCheckbox";
+import AccountDrilldown from "../components/AccountDrilldown";
 
 export default function TrialBalance() {
   const { settings, formatMoney, currencySymbol } = useAppSettings();
@@ -64,6 +65,22 @@ export default function TrialBalance() {
   const totalDr = filtered.reduce((s, r) => s + r.debit, 0);
   const totalCr = filtered.reduce((s, r) => s + r.credit, 0);
   const balanced = Math.abs(totalDr - totalCr) < 0.005;
+  const trialExportRows = [
+    ...filtered.map((row) => ({
+      "Account Name": row.name,
+      Type: row.type,
+      Group: row.group,
+      [`Debit (${currencySymbol})`]: row.debit || "",
+      [`Credit (${currencySymbol})`]: row.credit || "",
+    })),
+    {
+      "Account Name": "Total",
+      Type: "",
+      Group: "",
+      [`Debit (${currencySymbol})`]: totalDr,
+      [`Credit (${currencySymbol})`]: totalCr,
+    },
+  ];
 
   const typeOrder = ["Asset", "Liability", "Equity", "Income", "Expense"];
 
@@ -87,15 +104,10 @@ export default function TrialBalance() {
           <AuditUncheckAllButton />
           <ExportMenu
             fullReport
+            rowsOnly
             title="Trial Balance"
-            rows={filtered.map((row) => ({
-              code: row.id,
-              account: row.name,
-              type: row.type,
-              group: row.group,
-              debit: row.debit,
-              credit: row.credit,
-            }))}
+            period={period}
+            rows={trialExportRows}
           />
         </div>
       </div>
@@ -270,7 +282,7 @@ export default function TrialBalance() {
                             }}
                           >
                             <AuditCheckbox item={r.name} />
-                            {r.name}
+                            <AccountDrilldown account={r.name} />
                             {r.name.trim().toLowerCase() === "purchases" &&
                               stockInHandValue > 0 && (
                                 <button
