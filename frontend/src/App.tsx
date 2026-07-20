@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { DataProvider, useLedgerData } from './context/DataContext'
 import { ToastProvider } from './context/ToastContext'
@@ -11,6 +11,7 @@ import { ContentProvider } from './context/ContentContext'
 import PageFooter from './components/PageFooter'
 import { PageSkeletonFor, Spinner } from './components/Loading'
 import LedgerQuickView from './components/LedgerQuickView'
+import AppErrorBoundary from './components/AppErrorBoundary'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const JournalEntries = lazy(() => import('./pages/JournalEntries'))
@@ -48,6 +49,7 @@ const pageIds: PageId[] = [
 ]
 
 const isPageId = (value: string | null): value is PageId => Boolean(value && pageIds.includes(value as PageId))
+const superadminPages = new Set<PageId>(['user-management', 'clean-db'])
 
 function DataLoadingGate({ page, children }: { page: PageId; children: React.ReactNode }) {
   const { loading } = useLedgerData()
@@ -59,17 +61,22 @@ function DataLoadingGate({ page, children }: { page: PageId; children: React.Rea
 function AppShell() {
   const requestedPage = new URLSearchParams(window.location.search).get('page')
   const storedPage = window.localStorage.getItem('accounting.activePage')
-  const [activePage, setActivePage] = useState<PageId>(isPageId(requestedPage) ? requestedPage : isPageId(storedPage) ? storedPage : 'dashboard')
+  const [selectedPage, setSelectedPage] = useState<PageId>(isPageId(requestedPage) ? requestedPage : isPageId(storedPage) ? storedPage : 'dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { user, loading } = useAuth()
-  const navigate = (page: PageId) => {
-    setActivePage(page)
+  const activePage = user?.role !== 'superadmin' && superadminPages.has(selectedPage) ? 'dashboard' : selectedPage
+  const navigate = useCallback((page: PageId) => {
+    setSelectedPage(page)
     window.localStorage.setItem('accounting.activePage', page)
     const url = new URL(window.location.href)
     url.searchParams.set('page', page)
     if (page !== 'ledger') url.searchParams.delete('account')
     window.history.replaceState({}, '', url)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!loading && user && activePage !== selectedPage) navigate(activePage)
+  }, [activePage, loading, navigate, selectedPage, user])
 
   if (loading) {
     return <div className="app-loading"><Spinner size={20} /> Loading {appName}...</div>
@@ -116,10 +123,12 @@ function AppShell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ContentProvider><ToastProvider>
-        <SettingsProvider><AppShell /></SettingsProvider>
-      </ToastProvider></ContentProvider>
-    </AuthProvider>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <ContentProvider><ToastProvider>
+          <SettingsProvider><AppShell /></SettingsProvider>
+        </ToastProvider></ContentProvider>
+      </AuthProvider>
+    </AppErrorBoundary>
   )
 }
