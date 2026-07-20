@@ -29,7 +29,7 @@ describe('SignIn OTP flow', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Send OTP' }))
       await Promise.resolve()
     })
-    expect(screen.getByText(/Local\/dev OTP:/)).toHaveTextContent('123456')
+    expect(screen.getByText(/Dev\/test OTP:/)).toHaveTextContent('123456')
     expect(screen.getByRole('button', { name: 'Copy OTP' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Resend OTP in 10s' })).toBeDisabled()
     act(() => vi.advanceTimersByTime(1000))

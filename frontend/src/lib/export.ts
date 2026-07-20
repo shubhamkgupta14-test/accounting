@@ -12,10 +12,19 @@ export function exportRowsAsExcel(filename: string, rows: Record<string, unknown
 export function exportElementAsPdf(title: string, html: string) {
   const win = window.open('', '_blank', 'width=900,height=700')
   if (!win) return
-  win.document.write(`
+  win.opener = null
+  win.document.write(buildPrintDocument(title, html))
+  win.document.close()
+  win.focus()
+  win.print()
+}
+
+export function buildPrintDocument(title: string, html: string) {
+  const safeTitle = escapeExportHtml(title)
+  return `
     <html>
       <head>
-        <title>${title}</title>
+        <title>${safeTitle}</title>
         <style>
           body { font-family: Inter, Arial, sans-serif; font-size: 15px; padding: 24px; color: #0f172a; }
           h1 { font-size: 19px; margin-bottom: 16px; color: #0f172a; }
@@ -36,12 +45,9 @@ export function exportElementAsPdf(title: string, html: string) {
           .total-row td.balance-cell { color: #1d4ed8; }
         </style>
       </head>
-      <body><h1>${title}</h1>${html}</body>
+      <body><h1>${safeTitle}</h1>${html}</body>
     </html>
-  `)
-  win.document.close()
-  win.focus()
-  win.print()
+  `
 }
 
 export function csvCell(value: unknown) {

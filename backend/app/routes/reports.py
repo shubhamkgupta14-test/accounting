@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.database import get_database
+from app.core.config import settings
 from app.dependencies import get_current_user
 from app.accounting import accounts_with_balances
 from app.utils import serialize_many
@@ -43,7 +44,12 @@ async def financial_statements(start_date: date, end_date: date, business_start_
 
 @router.get("/comparative-financial-statements")
 async def comparative_financial_statements(
-    as_of: list[date] = Query(..., description="One date in each Indian FY to compare"),
+    as_of: list[date] = Query(
+        ...,
+        min_length=1,
+        max_length=settings.max_comparative_periods,
+        description="One date in each Indian FY to compare",
+    ),
     business_start_date: date | None = None,
     _: dict = Depends(get_current_user),
 ):
@@ -63,7 +69,16 @@ async def stock_value(as_of_date: date, method: str = "FIFO", _: dict = Depends(
 @router.get("/journal-data")
 async def financial_report_journal_data(_: dict = Depends(get_current_user)):
     """Complete journal feed used to build financial statements."""
-    docs = await get_database().journal_entries.find(
+    db = get_database()
+    total = await db.journal_entries.count_documents({
+        "system_entry_type": {"$ne": "FY_CLOSE"}
+    }, limit=settings.max_report_rows + 1)
+    if total > settings.max_report_rows:
+        raise HTTPException(
+            status_code=413,
+            detail="Journal report is too large; use a filtered or paginated report",
+        )
+    docs = await db.journal_entries.find(
         {"system_entry_type": {"$ne": "FY_CLOSE"}},
         {"date": 1, "voucher_no": 1, "narration": 1, "entries": 1, "status": 1},
     ).sort("date", 1).to_list(length=None)
@@ -252,11 +267,19 @@ async def ledger_accounts(_: dict = Depends(get_current_user)):
 async def ledger(account_name: str, _: dict = Depends(get_current_user)):
     db = get_database()
     account = await db.accounts.find_one({"name": account_name})
-    journal_docs = await db.journal_entries.find({
+    query = {
         "entries.account": account_name,
         "status": "Posted",
         "system_entry_type": {"$ne": "FY_CLOSE"},
-    }).sort("date", 1).to_list(length=None)
+    }
+    total = await db.journal_entries.count_documents(
+        query, limit=settings.max_report_rows + 1)
+    if total > settings.max_report_rows:
+        raise HTTPException(
+            status_code=413,
+            detail="Ledger is too large; use the paginated ledger endpoint",
+        )
+    journal_docs = await db.journal_entries.find(query).sort("date", 1).to_list(length=None)
     balance = account.get("opening_balance", 0) if account else 0
     debit_nature = not account or account.get("type") in {"Asset", "Expense"}
     rows = []

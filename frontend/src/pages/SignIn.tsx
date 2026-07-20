@@ -8,12 +8,23 @@ import PasswordInput from '../components/PasswordInput'
 import { usePageContent } from '../context/ContentContext'
 import { Spinner } from '../components/Loading'
 
+const demoAccounts = {
+  superadmin: import.meta.env.VITE_DEMO_SUPERADMIN_EMAIL?.trim() || '',
+  admin: import.meta.env.VITE_DEMO_ADMIN_EMAIL?.trim() || '',
+  user: import.meta.env.VITE_DEMO_USER_EMAIL?.trim() || '',
+}
+const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || ''
+const showDevelopmentHelpers = (
+  ['development', 'test'].includes(import.meta.env.MODE)
+  && Boolean(demoAccounts.superadmin && demoAccounts.admin && demoAccounts.user && demoPassword)
+)
+
 export default function SignIn() {
   const pageContent = usePageContent('login')
   const { login } = useAuth()
   const { showToast } = useToast()
-  const [email, setEmail] = useState('admin@accountingapp.com')
-  const [password, setPassword] = useState('password123')
+  const [email, setEmail] = useState(showDevelopmentHelpers ? demoAccounts.admin : '')
+  const [password, setPassword] = useState(showDevelopmentHelpers ? demoPassword : '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [resetMode, setResetMode] = useState(false)
@@ -51,7 +62,7 @@ export default function SignIn() {
       const result = await api.forgotPassword(email)
       setDevOtp(result.otp || '')
       setOtpCooldown(result.cooldown_seconds ?? 10)
-      showToast('success', result.otp ? 'OTP generated for local/dev.' : 'OTP sent to email.')
+      showToast('success', result.otp ? 'OTP generated for dev/test.' : 'If the email exists, an OTP has been sent.')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to request OTP'
       const waitSeconds = message.match(/wait\s+(\d+)\s+seconds?/i)
@@ -131,7 +142,7 @@ export default function SignIn() {
             </button>
             {devOtp && (
               <div className="auth-error" style={{ background: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <span>Local/dev OTP: <strong>{devOtp}</strong></span>
+                <span>Dev/test OTP: <strong>{devOtp}</strong></span>
                 <button type="button" onClick={() => void copyDevOtp()} aria-label="Copy OTP" title="Copy OTP"
                   style={{ border: 0, background: 'transparent', color: '#1D4ED8', cursor: 'pointer', padding: 3, display: 'flex', alignItems: 'center' }}>
                   {otpCopied ? <Check size={16} /> : <Copy size={16} />}
@@ -151,12 +162,12 @@ export default function SignIn() {
             </button>
           </div>
         )}
-        <div className="demo-logins">
+        {showDevelopmentHelpers && <div className="demo-logins">
           <span>Demo roles</span>
-          <button onClick={() => setEmail('superadmin@accountingapp.com')}>Superadmin</button>
-          <button onClick={() => setEmail('admin@accountingapp.com')}>Admin</button>
-          <button onClick={() => setEmail('user@accountingapp.com')}>User view</button>
-        </div>
+          <button onClick={() => setEmail(demoAccounts.superadmin)}>Superadmin</button>
+          <button onClick={() => setEmail(demoAccounts.admin)}>Admin</button>
+          <button onClick={() => setEmail(demoAccounts.user)}>User view</button>
+        </div>}
       </section>
     </main>
   )

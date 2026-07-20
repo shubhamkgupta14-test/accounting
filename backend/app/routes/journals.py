@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from io import BytesIO
 import json
 import re
+import zipfile
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -12,8 +13,9 @@ from typing import Literal
 from pymongo import ReturnDocument
 
 from app.core.database import get_database
+from app.core.config import settings
 from app.dependencies import get_current_user, require_roles
-from app.schemas import JournalEntryCreate
+from app.schemas import AccountCreate, JournalEntryCreate
 from app.utils import object_id, serialize_doc, serialize_many
 from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
 from app.financial_reports import build_financial_report, get_financial_year
@@ -310,13 +312,66 @@ def _suggest_account(name: str, index: int) -> dict:
 
 def _excel_account_names(content: bytes) -> set[str]:
     workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    rows = workbook.active.iter_rows(values_only=True)
+    sheet = workbook.active
+    _validate_sheet_dimensions(sheet)
+    rows = sheet.iter_rows(values_only=True)
     headers = [_header(value) for value in next(rows)]
     candidates = {"account", "account_name", "ledger", "ledger_name"}
     column = next((headers.index(name) for name in candidates if name in headers), None)
     if column is None:
         raise ValueError("Missing Excel column: account")
-    return {str(row[column]).strip() for row in rows if column < len(row) and row[column] not in (None, "")}
+    names = set()
+    for row_number, row in enumerate(rows, start=2):
+        if row_number > settings.max_excel_rows + 1:
+            raise ValueError(
+                f"Workbook exceeds the {settings.max_excel_rows} row limit")
+        if column < len(row) and row[column] not in (None, ""):
+            names.add(str(row[column]).strip())
+    return names
+
+
+def _validate_excel_container(content: bytes) -> None:
+    if not zipfile.is_zipfile(BytesIO(content)):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid Excel workbook")
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            total_size = sum(item.file_size for item in archive.infolist())
+            if total_size > settings.max_excel_uncompressed_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail="The uncompressed workbook is too large",
+                )
+            if len(archive.infolist()) > 2_000:
+                raise HTTPException(
+                    status_code=413,
+                    detail="The workbook contains too many internal files",
+                )
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid Excel workbook") from exc
+
+
+async def _read_excel_upload(file: UploadFile) -> bytes:
+    content = await file.read(settings.max_excel_upload_bytes + 1)
+    if len(content) > settings.max_excel_upload_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Excel uploads are limited to {settings.max_excel_upload_bytes} bytes",
+        )
+    _validate_excel_container(content)
+    return content
+
+
+def _validate_sheet_dimensions(sheet) -> None:
+    if sheet.max_column > settings.max_excel_columns:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Workbook exceeds the {settings.max_excel_columns} column limit",
+        )
+    if sheet.max_row > settings.max_excel_rows + 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Workbook exceeds the {settings.max_excel_rows} data row limit",
+        )
 
 
 async def _validate_accounts(payload: JournalEntryCreate) -> None:
@@ -394,15 +449,42 @@ async def import_journal_entries_excel(
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(status_code=400, detail="Upload an Excel .xlsx or .xlsm file")
-    content = await file.read()
+    content = await _read_excel_upload(file)
     try:
-        definitions = json.loads(account_definitions) if account_definitions else []
-        if not isinstance(definitions, list):
+        raw_definitions = json.loads(account_definitions) if account_definitions else []
+        if not isinstance(raw_definitions, list):
             raise ValueError("account_definitions must be a list")
+        if len(raw_definitions) > settings.max_excel_new_accounts:
+            raise ValueError(
+                f"At most {settings.max_excel_new_accounts} new ledgers may be created per import")
+        definitions = []
+        for raw in raw_definitions:
+            if not isinstance(raw, dict):
+                raise ValueError("Every account definition must be an object")
+            source_name = str(raw.get("source_name", "")).strip()
+            if not source_name or len(source_name) > 200:
+                raise ValueError("Every new ledger requires a valid source name")
+            account = AccountCreate(
+                code=raw.get("code"),
+                name=raw.get("name"),
+                type=raw.get("type"),
+                group=raw.get("group"),
+                opening_balance=0,
+                is_active=True,
+            )
+            definitions.append({
+                "source_name": source_name,
+                **account.model_dump(),
+            })
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
         sheet = workbook.active
+        _validate_sheet_dimensions(sheet)
         rows = sheet.iter_rows(values_only=True)
         headers = [_header(value) for value in next(rows)]
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=[
+            error["msg"] for error in exc.errors()
+        ][:20]) from exc
     except (json.JSONDecodeError, StopIteration, ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail="Unable to read the Excel workbook") from exc
     mappings = {str(item.get("source_name", "")).strip(): item for item in definitions if isinstance(item, dict)}
@@ -424,6 +506,10 @@ async def import_journal_entries_excel(
     current_voucher = ""
     errors: list[str] = []
     for row_number, values in enumerate(rows, start=2):
+        if row_number > settings.max_excel_rows + 1:
+            errors.append(
+                f"Workbook exceeds the {settings.max_excel_rows} data row limit")
+            break
         if not any(value not in (None, "") for value in values):
             continue
         def cell(field: str):
@@ -484,20 +570,27 @@ async def import_journal_entries_excel(
     saved_accounts = set(await db.accounts.distinct("name", {"name": {"$in": list(account_names)}}))
     proposed_accounts = {str(item.get("name", "")).strip() for item in definitions}
     missing_accounts = sorted(account_names - saved_accounts - proposed_accounts)
-    existing_codes = set(await db.accounts.distinct("code", {"code": {"$in": [str(item.get("code", "")).strip() for item in definitions]}}))
+    definition_codes = [item["code"] for item in definitions]
+    definition_names = [item["name"] for item in definitions]
+    definition_sources = [item["source_name"] for item in definitions]
+    existing_codes = set(await db.accounts.distinct("code", {"code": {"$in": definition_codes}}))
+    existing_names = set(await db.accounts.distinct("name", {"name": {"$in": definition_names}}))
     if duplicates_in_file:
         errors.append(f"Duplicate vouchers in file: {', '.join(duplicates_in_file)}")
     if existing:
         errors.append(f"Voucher numbers already exist: {', '.join(sorted(existing))}")
     if missing_accounts:
         errors.append(f"Unknown accounts: {', '.join(missing_accounts)}")
-    for item in definitions:
-        if not all(str(item.get(field, "")).strip() for field in ("source_name", "name", "code", "type", "group")):
-            errors.append("Every new ledger requires source name, name, code, type and group")
-        if item.get("type") not in {"Asset", "Liability", "Equity", "Income", "Expense"}:
-            errors.append(f"Invalid ledger type for {item.get('name', 'unknown ledger')}")
+    if len(definition_codes) != len(set(code.casefold() for code in definition_codes)):
+        errors.append("New ledger codes must be unique within the import")
+    if len(definition_names) != len(set(name.casefold() for name in definition_names)):
+        errors.append("New ledger names must be unique within the import")
+    if len(definition_sources) != len(set(name.casefold() for name in definition_sources)):
+        errors.append("Excel source ledger names must be unique within the import")
     if existing_codes:
         errors.append(f"Ledger codes already exist: {', '.join(sorted(existing_codes))}")
+    if existing_names:
+        errors.append(f"Ledger names already exist: {', '.join(sorted(existing_names))}")
     if errors:
         raise HTTPException(status_code=422, detail=errors[:50])
     if not payloads:
@@ -527,7 +620,7 @@ async def preview_journal_excel(
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(status_code=400, detail="Upload an Excel .xlsx or .xlsm file")
     try:
-        names = _excel_account_names(await file.read())
+        names = _excel_account_names(await _read_excel_upload(file))
     except (StopIteration, ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc) or "Unable to read workbook") from exc
     existing = set(await get_database().accounts.distinct("name", {"name": {"$in": list(names)}}))

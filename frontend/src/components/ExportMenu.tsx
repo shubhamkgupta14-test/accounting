@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, X } from 'lucide-react'
-import { exportElementAsPdf, exportRowsAsExcel } from '../lib/export'
+import { escapeExportHtml, exportElementAsPdf, exportRowsAsExcel } from '../lib/export'
 
 interface Props {
   title: string
@@ -206,5 +206,5 @@ function rowsToHtml(rows: Record<string, unknown>[]) {
   const pdfValue = (value: unknown) => typeof value === 'number'
     ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
     : String(value ?? '')
-  return `<table><thead><tr>${headers.map(h => `<th class="${classes(h)}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr${isTotal(row) ? ' class="total-row"' : ''}>${headers.map(h => `<td class="${classes(h)}" style="white-space:${h.toLowerCase().includes('date') ? 'nowrap' : 'pre-wrap'}">${pdfValue(row[h])}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+  return `<table><thead><tr>${headers.map(h => `<th class="${classes(h)}">${escapeExportHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr${isTotal(row) ? ' class="total-row"' : ''}>${headers.map(h => `<td class="${classes(h)}" style="white-space:${h.toLowerCase().includes('date') ? 'nowrap' : 'pre-wrap'}">${escapeExportHtml(pdfValue(row[h]))}</td>`).join('')}</tr>`).join('')}</tbody></table>`
 }

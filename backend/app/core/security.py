@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import os
+import uuid
 
 import jwt
 
@@ -40,5 +41,14 @@ def _pbkdf2(password: str, salt: bytes, iterations: int) -> bytes:
 
 def create_access_token(subject: str, role: str, token_version: int = 0) -> str:
     expires = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expires_minutes)
-    payload = {"sub": subject, "role": role, "ver": token_version, "iat": datetime.now(timezone.utc), "exp": expires}
+    payload = {
+        "sub": subject,
+        "role": role,
+        "ver": token_version,
+        "iat": datetime.now(timezone.utc),
+        "exp": expires,
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "jti": str(uuid.uuid4()),
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm=ALGORITHM)
