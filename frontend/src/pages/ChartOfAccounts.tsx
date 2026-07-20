@@ -9,6 +9,9 @@ import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type Account } from '../lib/api'
 import { Spinner, TableSkeletonRows } from '../components/Loading'
+import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
+import AccountDrilldown from '../components/AccountDrilldown'
+import ConfirmModal from '../components/ConfirmModal'
 
 type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
 
@@ -55,6 +58,7 @@ export default function ChartOfAccounts() {
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
   const [form, setForm] = useState<AccountForm>({
     code: nextAccountCode(accounts.length),
     name: '',
@@ -127,13 +131,30 @@ export default function ChartOfAccounts() {
   }
 
   const removeAccount = async (account: Account) => {
-    if (!account.backendId || !window.confirm(`Delete ledger account "${account.name}"?`)) return
+    if (!account.backendId) return
+    setDeleteTarget(null)
     try {
       await deleteAccount(account.backendId)
       setReloadKey(value => value + 1)
-      showToast('success', 'Account deleted successfully.')
+      showToast('success', `Ledger account "${account.name}" deleted.`, {
+        duration: 10000,
+        action: { label: 'Undo', onClick: () => {
+          void createAccount({
+            code: account.code,
+            name: account.name,
+            type: account.type,
+            group: account.group,
+            opening_balance: account.opening_balance,
+            is_active: account.is_active,
+          }).then(() => {
+            setReloadKey(value => value + 1)
+            showToast('success', `Ledger account "${account.name}" restored.`)
+          }).catch(err => showToast('error', err instanceof Error ? err.message : 'Unable to restore account.'))
+        } },
+      })
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Unable to delete account.')
+        setReloadKey(value => value + 1)
+        showToast('error', err instanceof Error ? err.message : 'Unable to delete account.')
     }
   }
 
@@ -166,15 +187,25 @@ export default function ChartOfAccounts() {
 
   return (
     <div>
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete ledger account?"
+        message={`Delete "${deleteTarget?.name || ''}"? You will have 10 seconds to undo this action.`}
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) void removeAccount(deleteTarget) }}
+      />
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="chart-of-accounts" />
         <div style={{ display: 'flex', gap: 8 }}>
-          <ExportMenu fullReport title="Ledger Accounts" rows={rows.map(row => ({
-            code: row.id,
-            name: row.name,
-            type: row.type,
-            group: row.group,
-            balance: row.balance || 0,
+          <AuditUncheckAllButton />
+          <ExportMenu fullReport rowsOnly title="Ledger Accounts" rows={rows.map(row => ({
+            'A/c Code': row.id,
+            'Ledger Account Name': row.name,
+            Type: row.type,
+            Group: row.group,
+            [`Balance (${currencySymbol})`]: row.balance || 0,
           }))} />
           {canWrite && (
             <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={openForm}>
@@ -188,7 +219,7 @@ export default function ChartOfAccounts() {
         <div className="card" style={{ marginBottom: 20, padding: '20px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{editingId ? 'Edit Ledger Account' : 'Add Ledger Account'}</h3>
-            <button className="btn btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowForm(false)}>
+            <button className="btn btn-ghost btn-icon" style={{ padding: '4px 8px' }} onClick={() => setShowForm(false)}>
               <X size={16} />
             </button>
           </div>
@@ -272,6 +303,7 @@ export default function ChartOfAccounts() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 36, minWidth: 36, padding: 0 }} />
                 <th>A/c Code</th>
                 <th>Ledger Account Name</th>
                 <th>Type</th>
@@ -281,25 +313,28 @@ export default function ChartOfAccounts() {
               </tr>
             </thead>
             <tbody>
-              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 6 : 5} />}
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 7 : 6} />}
               {!loadingRows && rows.map(a => (
                 <tr key={a.id}>
+                  <td style={{ width: 36, minWidth: 36, padding: '8px 4px', textAlign: 'center' }}>
+                    <AuditCheckbox item={`ledger account ${a.name}`} />
+                  </td>
                   <td><span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{a.id}</span></td>
-                  <td style={{ fontWeight: 500 }}>{a.name}</td>
+                  <td style={{ fontWeight: 500 }}><AccountDrilldown account={a.name} /></td>
                   <td><span className={`badge ${typeColors[a.type] || 'badge-slate'}`}>{a.type}</span></td>
                   <td><span className="group-text">{a.group}</span></td>
                   <td className="num" style={{ fontWeight: 600 }}>{(a.balance || 0).toLocaleString('en-IN')}</td>
                   {(canWrite || canManageUsers) && (
                     <td style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                      <div className="table-action-icons">
                         {canWrite && (
-                          <button className="btn btn-ghost" style={{ padding: '4px 7px', color: '#3B82F6' }} title="Edit" onClick={() => openEditForm(a)}>
-                            <Edit2 size={13} />
+                          <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit ledger account" aria-label="Edit ledger account" onClick={() => openEditForm(a)}>
+                            <Edit2 size={14} />
                           </button>
                         )}
                         {canManageUsers && (
-                          <button className="btn btn-ghost" style={{ padding: '4px 7px', color: '#EF4444' }} title="Delete" onClick={() => void removeAccount(a)}>
-                            <Trash2 size={13} />
+                          <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete ledger account" aria-label="Delete ledger account" onClick={() => setDeleteTarget(a)}>
+                            <Trash2 size={14} />
                           </button>
                         )}
                       </div>
@@ -309,7 +344,7 @@ export default function ChartOfAccounts() {
               ))}
               {!loadingRows && rows.length === 0 && (
                 <tr>
-                  <td colSpan={canWrite || canManageUsers ? 6 : 5}>
+                  <td colSpan={canWrite || canManageUsers ? 7 : 6}>
                     <div className="empty-state" style={{ padding: '36px 20px' }}>
                       <p>No ledger accounts yet. Add ledger accounts before creating journal entries.</p>
                     </div>

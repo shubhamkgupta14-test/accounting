@@ -49,12 +49,12 @@ const isBankAccount = (account: Account | undefined) =>
   Boolean(
     account &&
     account.type === "Asset" &&
-    account.group.toLowerCase() === "bank",
+    (account.group.toLowerCase() === "bank" ||
+      account.name.toLowerCase().includes("bank")),
   );
 
 const naturalBalance = (account: Account, journals: JournalEntry[]) => {
   const totals = journals
-    .filter((journal) => journal.status === "Posted")
     .flatMap((journal) => journal.entries)
     .filter((line) => line.account === account.name)
     .reduce(
@@ -82,7 +82,6 @@ const buildBookRows = (
     )
     .reduce((sum, account) => sum + (Number(account.opening_balance) || 0), 0);
   journals
-    .filter((journal) => journal.status === "Posted")
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date))
     .forEach((journal) => {
@@ -144,13 +143,14 @@ export function DataProvider({ children, activePage }: { children: React.ReactNo
     refreshingRef.current = true;
     setLoading(true);
     try {
-      const needsAccounts = !["dashboard", "daybook", "reports", "settings", "notifications", "user-management", "clean-db"].includes(activePage);
+      const backendReportPages = ["trial-balance", "trading", "profit-loss", "balance-sheet"];
+      const needsAccounts = !["dashboard", "daybook", "reports", "settings", "notifications", "user-management", "clean-db", ...backendReportPages].includes(activePage);
       const needsJournals = ["cashbook", "bankbook", "profit-analysis", "cash-flow-report"].includes(activePage);
       const needsCash = ["cashbook", "cash-flow-report"].includes(activePage);
       const needsBank = ["bankbook", "cash-flow-report"].includes(activePage);
       const [accountRows, journalRows, voucherRows, cashRows, bankRows] =
         await Promise.all([
-          needsAccounts && accountsCacheRef.current.length === 0 ? api.accounts() : Promise.resolve(accountsCacheRef.current),
+          needsAccounts ? api.accounts() : Promise.resolve(accountsCacheRef.current),
           needsJournals ? api.journals() : Promise.resolve([]),
           Promise.resolve([]),
           needsCash ? api.transactions("cash") : Promise.resolve([]),

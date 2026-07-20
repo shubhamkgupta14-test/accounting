@@ -1,29 +1,50 @@
 import { appName } from '../config/app'
-import { useLedgerData } from '../context/DataContext'
 import ExportMenu from '../components/ExportMenu'
+import ReportPeriodFilter from '../components/ReportPeriodFilter'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { Scale, TrendingDown, TrendingUp } from 'lucide-react'
+import { useFinancialReport } from '../hooks/useFinancialReport'
+import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
+import AccountDrilldown from '../components/AccountDrilldown'
+import { buildTraditionalTwoSidedExport } from '../lib/export'
 
 export default function TradingAccount() {
-  const { accounts } = useLedgerData()
-  const { formatMoney } = useAppSettings()
-  const directExpenses = accounts.filter(account => account.type === 'Expense' && account.group === 'Direct Expenses' && (account.balance || 0) !== 0)
-  const directIncome = accounts.filter(account => account.type === 'Income' && account.group === 'Direct Income' && (account.balance || 0) !== 0)
-  const debitTotal = directExpenses.reduce((sum, account) => sum + (account.balance || 0), 0)
-  const creditTotal = directIncome.reduce((sum, account) => sum + (account.balance || 0), 0)
-  const grossProfit = creditTotal - debitTotal
+  const { settings, formatMoney } = useAppSettings()
+  const { report, period, setPeriod, loading, error } = useFinancialReport(settings.fiscal)
+  if (!report) return <div><PageIntro id="trading" /><ReportPeriodFilter period={period} onChange={setPeriod} loading={loading} error={error} /></div>
+  const { directExpenses, directIncome, openingStock, closingStock, grossProfit } = report
+  const debitTotal = openingStock + directExpenses.reduce((sum, account) => sum + (account.balance || 0), 0)
+  const creditTotal = closingStock + directIncome.reduce((sum, account) => sum + (account.balance || 0), 0)
   const grandTotal = Math.max(debitTotal + Math.max(grossProfit, 0), creditTotal + Math.max(-grossProfit, 0))
+  const debitExport = [
+    ...(openingStock !== 0 ? [{ particulars: 'To Opening Stock', amount: openingStock }] : []),
+    ...directExpenses.map(account => ({ particulars: `To ${account.name}`, amount: account.balance || 0 })),
+    ...(grossProfit > 0 ? [{ particulars: 'To Gross Profit c/d', amount: grossProfit }] : []),
+  ]
+  const creditExport = [
+    ...directIncome.map(account => ({ particulars: `By ${account.name}`, amount: account.balance || 0 })),
+    ...(closingStock !== 0 ? [{ particulars: 'By Closing Stock', amount: closingStock }] : []),
+    ...(grossProfit < 0 ? [{ particulars: 'By Gross Loss c/d', amount: Math.abs(grossProfit) }] : []),
+  ]
+  const tradingExport = buildTraditionalTwoSidedExport('Dr.', 'Cr.', debitExport, creditExport, grandTotal)
 
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="trading" />
-        <ExportMenu fullReport title="Trading Account" rows={[
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <AuditUncheckAllButton />
+        <ExportMenu fullReport title="Trading Account" period={period} excelRows={tradingExport.rows} pdfHtml={tradingExport.html} rows={[
+          ...(openingStock !== 0 ? [{ side: 'Debit', account: 'Opening Stock', amount: openingStock }] : []),
           ...directExpenses.map(account => ({ side: 'Debit', account: account.name, amount: account.balance || 0 })),
           ...directIncome.map(account => ({ side: 'Credit', account: account.name, amount: account.balance || 0 })),
+          ...(closingStock !== 0 ? [{ side: 'Credit', account: 'Closing Stock', amount: closingStock }] : []),
         ]} />
+        </div>
       </div>
+
+      <ReportPeriodFilter period={period} onChange={setPeriod} loading={loading} error={error} />
 
       <div style={{ marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         <div className="card stat-card">
@@ -52,15 +73,21 @@ export default function TradingAccount() {
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>
+                {openingStock !== 0 && (
+                  <tr style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '9px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Opening Stock" />Opening Stock</span></td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{openingStock.toLocaleString('en-IN')}</td>
+                  </tr>
+                )}
                 {directExpenses.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                    <td style={{ padding: '9px 20px', fontSize: 13 }}>{account.name}</td>
+                    <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
                     <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 ))}
                 {grossProfit > 0 && (
                   <tr style={{ background: '#F0FDF4', borderTop: '2px solid #BBF7D0' }}>
-                    <td style={{ padding: '10px 20px', fontWeight: 700, color: '#065F46' }}>Gross Profit c/d</td>
+                    <td style={{ padding: '10px 20px', fontWeight: 700, color: '#065F46' }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Profit carried down" />Gross Profit c/d</span></td>
                     <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#10B981' }}>{grossProfit.toLocaleString('en-IN')}</td>
                   </tr>
                 )}
@@ -75,13 +102,19 @@ export default function TradingAccount() {
               <tbody>
                 {directIncome.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                    <td style={{ padding: '9px 20px', fontSize: 13 }}>{account.name}</td>
+                    <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
                     <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 ))}
+                {closingStock !== 0 && (
+                  <tr style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '9px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Closing Stock" />Closing Stock</span></td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{closingStock.toLocaleString('en-IN')}</td>
+                  </tr>
+                )}
                 {grossProfit < 0 && (
                   <tr style={{ background: '#FEF2F2', borderTop: '2px solid #FECACA' }}>
-                    <td style={{ padding: '10px 20px', fontWeight: 700, color: '#991B1B' }}>Gross Loss c/d</td>
+                    <td style={{ padding: '10px 20px', fontWeight: 700, color: '#991B1B' }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Loss carried down" />Gross Loss c/d</span></td>
                     <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#EF4444' }}>{Math.abs(grossProfit).toLocaleString('en-IN')}</td>
                   </tr>
                 )}

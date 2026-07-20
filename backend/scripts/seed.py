@@ -84,7 +84,7 @@ DEFAULT_ACCOUNTS = [
         "type": "Asset", "group": "Current Assets"},
     {"code": "PA001", "name": "Prepaid Expenses",
         "type": "Asset", "group": "Current Assets"},
-    {"code": "CA003", "name": "Closing Stock",
+    {"code": "CA003", "name": "Stock-in-Hand",
         "type": "Asset", "group": "Current Assets"},
     {"code": "FA001", "name": "Furniture & Fixtures",
         "type": "Asset", "group": "Fixed Assets"},
@@ -112,7 +112,7 @@ DEFAULT_ACCOUNTS = [
         "type": "Liability", "group": "Long-term Liabilities"},
     {"code": "LN002", "name": "Vehicle Loan",
         "type": "Liability", "group": "Long-term Liabilities"},
-    {"code": "EQ001", "name": "Capital", "type": "Equity", "group": "Capital"},
+    {"code": "EQ001", "name": "Capital", "type": "Equity", "group": "Capital", "opening_balance": 800_000},
     {"code": "EQ002", "name": "Drawings", "type": "Equity", "group": "Capital"},
     {"code": "EQ003", "name": "Retained Earnings",
         "type": "Equity", "group": "Capital"},
@@ -279,7 +279,7 @@ async def main(args: argparse.Namespace):
     await db.accounts.insert_many([
         {
             **account,
-            "opening_balance": 0,
+            "opening_balance": account.get("opening_balance", 0),
             "is_active": True,
             "created_at": now,
         }

@@ -10,6 +10,7 @@ import SignIn from './pages/SignIn'
 import { ContentProvider } from './context/ContentContext'
 import PageFooter from './components/PageFooter'
 import { PageSkeletonFor, Spinner } from './components/Loading'
+import LedgerQuickView from './components/LedgerQuickView'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const JournalEntries = lazy(() => import('./pages/JournalEntries'))
@@ -40,6 +41,14 @@ export type PageId =
   | 'notifications' | 'user-management' | 'clean-db'
   | 'account-summary' | 'profit-analysis' | 'cash-flow-report'
 
+const pageIds: PageId[] = [
+  'dashboard', 'journal', 'vouchers', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading',
+  'profit-loss', 'balance-sheet', 'daybook', 'chart-of-accounts', 'reports', 'settings',
+  'notifications', 'user-management', 'clean-db', 'account-summary', 'profit-analysis', 'cash-flow-report',
+]
+
+const isPageId = (value: string | null): value is PageId => Boolean(value && pageIds.includes(value as PageId))
+
 function DataLoadingGate({ page, children }: { page: PageId; children: React.ReactNode }) {
   const { loading } = useLedgerData()
   const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
@@ -48,9 +57,19 @@ function DataLoadingGate({ page, children }: { page: PageId; children: React.Rea
 }
 
 function AppShell() {
-  const [activePage, setActivePage] = useState<PageId>('dashboard')
+  const requestedPage = new URLSearchParams(window.location.search).get('page')
+  const storedPage = window.localStorage.getItem('accounting.activePage')
+  const [activePage, setActivePage] = useState<PageId>(isPageId(requestedPage) ? requestedPage : isPageId(storedPage) ? storedPage : 'dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { user, loading } = useAuth()
+  const navigate = (page: PageId) => {
+    setActivePage(page)
+    window.localStorage.setItem('accounting.activePage', page)
+    const url = new URL(window.location.href)
+    url.searchParams.set('page', page)
+    if (page !== 'ledger') url.searchParams.delete('account')
+    window.history.replaceState({}, '', url)
+  }
 
   if (loading) {
     return <div className="app-loading"><Spinner size={20} /> Loading {appName}...</div>
@@ -61,10 +80,10 @@ function AppShell() {
   }
 
   const pages: Record<PageId, React.ReactNode> = {
-    'dashboard': <Dashboard onNavigate={setActivePage} />,
+    'dashboard': <Dashboard onNavigate={navigate} />,
     'journal': <JournalEntries />,
     'vouchers': <Vouchers />,
-    'ledger': <Ledger onNavigate={setActivePage} />,
+    'ledger': <Ledger onNavigate={navigate} />,
     'cashbook': <CashBook />,
     'bankbook': <BankBook />,
     'trial-balance': <TrialBalance />,
@@ -73,7 +92,7 @@ function AppShell() {
     'balance-sheet': <BalanceSheet />,
     'daybook': <DayBook />,
     'chart-of-accounts': <ChartOfAccounts />,
-    'reports': <Reports onNavigate={setActivePage} />,
+    'reports': <Reports onNavigate={navigate} />,
     'settings': <Settings />,
     'notifications': <NotificationCenter />,
     'user-management': <UserManagement />,
@@ -84,8 +103,9 @@ function AppShell() {
   }
   return (
     <DataProvider activePage={activePage}>
-      <Sidebar activePage={activePage} onNavigate={setActivePage} mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
-      <Header activePage={activePage} onNavigate={setActivePage} onOpenMenu={() => setMobileMenuOpen(true)} />
+      <LedgerQuickView />
+      <Sidebar activePage={activePage} onNavigate={navigate} mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
+      <Header activePage={activePage} onNavigate={navigate} onOpenMenu={() => setMobileMenuOpen(true)} />
       <main className="main-content">
         <DataLoadingGate page={activePage}><Suspense fallback={<PageSkeletonFor page={activePage} />}>{pages[activePage]}</Suspense></DataLoadingGate>
         <PageFooter />

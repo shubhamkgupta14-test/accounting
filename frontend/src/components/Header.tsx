@@ -19,7 +19,7 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
 
   return (
     <header className="top-header">
-      <button className="btn btn-ghost mobile-menu-button" aria-label="Open navigation" onClick={onOpenMenu}><Menu size={19} /></button>
+      <button className="btn btn-ghost btn-icon mobile-menu-button" aria-label="Open navigation" onClick={onOpenMenu}><Menu size={19} /></button>
       {/* Brand and current page breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
         <button type="button" style={{ ...crumbStyle, fontSize: 15, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.01em' }} onClick={() => onNavigate('dashboard')}>
@@ -31,7 +31,7 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
 
       {/* Right actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <button className="btn btn-ghost" style={{ padding: '6px 8px', position: 'relative' }} title="Notifications" onClick={() => onNavigate('notifications')}>
+        <button className="btn btn-ghost btn-icon" style={{ position: 'relative' }} title="Notifications" onClick={() => onNavigate('notifications')}>
           <Bell size={16} />
           <span style={{
             position: 'absolute', top: 4, right: 4,
@@ -39,7 +39,7 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
             background: '#EF4444', border: '1.5px solid white'
           }} />
         </button>
-        <button className="btn btn-ghost header-help" style={{ padding: '6px 8px' }} title="Help">
+        <button className="btn btn-ghost btn-icon header-help" title="Help">
           <HelpCircle size={16} />
         </button>
         <div style={{ width: 1, height: 20, background: '#E2E8F0', margin: '0 4px' }} />

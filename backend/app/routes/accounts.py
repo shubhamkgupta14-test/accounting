@@ -17,7 +17,8 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 @router.get("")
 async def list_accounts(_: dict = Depends(get_current_user)):
-    docs = await accounts_with_balances(get_database())
+    db = get_database()
+    docs = await accounts_with_balances(db)
     return serialize_many(docs)
 
 

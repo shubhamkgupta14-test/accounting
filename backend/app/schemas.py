@@ -10,6 +10,7 @@ VoucherType = Literal["Payment", "Receipt", "Contra", "Sales", "Purchase", "Jour
 VoucherStatus = Literal["Pending", "Approved", "Rejected"]
 BookType = Literal["cash", "bank"]
 TxnType = Literal["Receipt", "Payment"]
+InventoryTransactionType = Literal["INWARD", "OUTWARD"]
 
 
 class LoginRequest(BaseModel):
@@ -74,7 +75,7 @@ class JournalEntryCreate(BaseModel):
     voucher_no: str = Field(min_length=1, max_length=100)
     narration: str = Field(min_length=1, max_length=2000)
     entries: list[JournalLine] = Field(min_length=2)
-    status: EntryStatus = "Draft"
+    status: EntryStatus = "Posted"
 
     @model_validator(mode="after")
     def validate_balanced(self):
@@ -120,4 +121,18 @@ class TransactionCreate(BaseModel):
     def validate_one_side(self):
         if (self.debit == 0) == (self.credit == 0):
             raise ValueError("Transaction must have either a debit or a credit amount")
+        return self
+
+
+class InventoryMovementCreate(BaseModel):
+    date: date
+    item_id: str = Field(min_length=1, max_length=100)
+    quantity: float = Field(gt=0, allow_inf_nan=False)
+    rate: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    transaction_type: InventoryTransactionType
+
+    @model_validator(mode="after")
+    def validate_inward_rate(self):
+        if self.transaction_type == "INWARD" and self.rate is None:
+            raise ValueError("rate is required for an INWARD movement")
         return self

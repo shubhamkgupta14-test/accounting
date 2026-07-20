@@ -10,33 +10,39 @@ export default function CashBook() {
   const { cashTransactions } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
   const [view, setView] = useState<'all' | 'receipts' | 'payments'>('all')
+  const [dateFilter, setDateFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  const filtered = cashTransactions.filter(r =>
+  const financialYears = Array.from(new Set(cashTransactions.map(row => financialYearStart(row.date)))).sort((a, b) => b - a)
+  const datedTransactions = cashTransactions.filter(row => inSelectedPeriod(row.date, dateFilter, dateFrom, dateTo))
+  const filtered = datedTransactions.filter(r =>
     view === 'all' ? true : view === 'receipts' ? r.type === 'Receipt' : r.type === 'Payment'
   )
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
-  const receipts = cashTransactions.filter(r => r.type === 'Receipt')
-  const payments = cashTransactions.filter(r => r.type === 'Payment')
-  const totalDr = cashTransactions.reduce((s, r) => s + r.dr, 0)
-  const totalCr = cashTransactions.reduce((s, r) => s + r.cr, 0)
-  const opening = cashTransactions.length ? cashTransactions[0].balance - cashTransactions[0].dr + cashTransactions[0].cr : 0
-  const closing = cashTransactions[cashTransactions.length - 1]?.balance ?? 0
+  const receipts = datedTransactions.filter(r => r.type === 'Receipt')
+  const payments = datedTransactions.filter(r => r.type === 'Payment')
+  const totalDr = datedTransactions.reduce((s, r) => s + r.dr, 0)
+  const totalCr = datedTransactions.reduce((s, r) => s + r.cr, 0)
+  const opening = datedTransactions.length ? datedTransactions[0].balance - datedTransactions[0].dr + datedTransactions[0].cr : 0
+  const closing = datedTransactions[datedTransactions.length - 1]?.balance ?? 0
+  const exportHeading = dateFilter === 'custom' ? `${dateFrom || 'Beginning'} to ${dateTo || 'Present'}` : dateFilter === 'all' ? 'All financial years' : `FY ${dateFilter}-${String(Number(dateFilter) + 1).slice(-2)}`
 
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <PageIntro id="cashbook" />
         <div style={{ display: 'flex', gap: 8 }}>
-          <ExportMenu title="Cash Book" rows={filtered.map(row => ({
-            date: row.date,
-            particulars: row.particulars,
-            voucher_no: row.voucherNo,
-            type: row.type,
-            debit: row.dr,
-            credit: row.cr,
-            balance: row.balance,
+          <ExportMenu fullReport rowsOnly title="Cash Book" heading={exportHeading} rows={filtered.map(row => ({
+            Date: row.date,
+            Particulars: row.particulars,
+            'Voucher No.': row.voucherNo,
+            Type: row.type,
+            [`Debit (${currencySymbol})`]: row.dr,
+            [`Credit (${currencySymbol})`]: row.cr,
+            [`Balance (${currencySymbol})`]: row.balance,
           }))} />
         </div>
       </div>
@@ -77,6 +83,15 @@ export default function CashBook() {
               </button>
             ))}
           </div>
+          <select className="select" style={{ fontSize: 13 }} value={dateFilter} onChange={event => { setDateFilter(event.target.value); setPage(1) }}>
+            <option value="all">All financial years</option>
+            {financialYears.map(start => <option key={start} value={start}>FY {start}-{String(start + 1).slice(-2)}</option>)}
+            <option value="custom">Custom range</option>
+          </select>
+          {dateFilter === 'custom' && <>
+            <input type="date" min="1000-01-01" max="9999-12-31" className="input" style={{ width: 142, height: 34, fontSize: 13 }} value={dateFrom} onChange={event => { setDateFrom(event.target.value); setPage(1) }} />
+            <input type="date" min={dateFrom || '1000-01-01'} max="9999-12-31" className="input" style={{ width: 142, height: 34, fontSize: 13 }} value={dateTo} onChange={event => { setDateTo(event.target.value); setPage(1) }} />
+          </>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, fontSize: 12.5, color: '#64748B' }}>
             <span><span style={{ color: '#10B981', fontWeight: 600 }}>{receipts.length}</span> receipts</span>
             <span><span style={{ color: '#EF4444', fontWeight: 600 }}>{payments.length}</span> payments</span>
@@ -127,4 +142,18 @@ export default function CashBook() {
       </div>
     </div>
   )
+}
+
+function financialYearStart(value: string) {
+  const date = value.slice(0, 10)
+  const year = Number(date.slice(0, 4))
+  return Number(date.slice(5, 7)) >= 4 ? year : year - 1
+}
+
+function inSelectedPeriod(value: string, filter: string, from: string, to: string) {
+  const date = value.slice(0, 10)
+  if (filter === 'custom') return (!from || date >= from) && (!to || date <= to)
+  if (filter === 'all') return true
+  const start = Number(filter)
+  return date >= `${start}-04-01` && date <= `${start + 1}-03-31`
 }
