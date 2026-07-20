@@ -15,7 +15,12 @@ export default function UserManagement() {
   const [deleteTarget, setDeleteTarget] = useState<AuthUser | null>(null)
 
   const load = async () => {
-    try { setUsers(await api.users()) }
+    try {
+      setUsers(await api.users())
+    } catch (err) {
+      setUsers([])
+      showToast('error', err instanceof Error ? err.message : 'Unable to load users.')
+    }
     finally { setLoading(false) }
   }
   useEffect(() => { void load() }, [])
