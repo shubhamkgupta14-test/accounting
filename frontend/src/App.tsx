@@ -38,13 +38,13 @@ export type PageId =
   | 'dashboard' | 'journal' | 'vouchers' | 'ledger'
   | 'cashbook' | 'bankbook' | 'trial-balance' | 'trading'
   | 'profit-loss' | 'balance-sheet' | 'daybook'
-  | 'chart-of-accounts' | 'reports' | 'settings'
+  | 'chart-of-accounts' | 'partners' | 'reports' | 'settings'
   | 'notifications' | 'user-management' | 'clean-db'
   | 'account-summary' | 'profit-analysis' | 'cash-flow-report'
 
 const pageIds: PageId[] = [
   'dashboard', 'journal', 'vouchers', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading',
-  'profit-loss', 'balance-sheet', 'daybook', 'chart-of-accounts', 'reports', 'settings',
+  'profit-loss', 'balance-sheet', 'daybook', 'chart-of-accounts', 'partners', 'reports', 'settings',
   'notifications', 'user-management', 'clean-db', 'account-summary', 'profit-analysis', 'cash-flow-report',
 ]
 
@@ -53,7 +53,7 @@ const superadminPages = new Set<PageId>(['user-management', 'clean-db'])
 
 function DataLoadingGate({ page, children }: { page: PageId; children: React.ReactNode }) {
   const { loading } = useLedgerData()
-  const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
+  const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'partners', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
   if (loading && waitsForSharedData) return <PageSkeletonFor page={page} />
   return children
 }
@@ -99,6 +99,7 @@ function AppShell() {
     'balance-sheet': <BalanceSheet />,
     'daybook': <DayBook />,
     'chart-of-accounts': <ChartOfAccounts />,
+    'partners': <Settings partnersOnly />,
     'reports': <Reports onNavigate={navigate} />,
     'settings': <Settings />,
     'notifications': <NotificationCenter />,

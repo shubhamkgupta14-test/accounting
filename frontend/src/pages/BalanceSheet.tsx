@@ -8,6 +8,7 @@ import { useFinancialReport } from '../hooks/useFinancialReport'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import AccountDrilldown from '../components/AccountDrilldown'
 import { buildTraditionalTwoSidedExport } from '../lib/export'
+import { balanceSheetAssetGroup, balanceSheetLiabilityGroup } from '../lib/accountGroups'
 
 export default function BalanceSheet() {
   const { settings, formatMoney } = useAppSettings()
@@ -18,22 +19,6 @@ export default function BalanceSheet() {
   const totalLiab = liabilitiesAndCapital.reduce((sum, account) => sum + (account.balance || 0), 0)
   const balanced = Math.abs(totalAssets - totalLiab) < 0.005
 
-  const assetGroup = (account: typeof assets[number]) => {
-    const group = account.group.toLowerCase()
-    const name = account.name.toLowerCase()
-    if (group.includes('fixed')) return 'Fixed Assets'
-    if (group.includes('non-current') || group.includes('long-term')) return 'Non-current Assets'
-    if (name.includes('cash')) return 'Cash'
-    if (group === 'bank' || name.includes('bank')) return 'Bank'
-    return 'Current Assets'
-  }
-  const liabilityGroup = (account: typeof liabilitiesAndCapital[number]) => {
-    const group = account.group.toLowerCase()
-    if (account.type === 'Equity') return 'Capital'
-    if (group.includes('long-term')) return 'Long-term Liabilities'
-    if (group.includes('current') || group.includes('short-term') || group.includes('creditor')) return 'Short-term Liabilities'
-    return 'Other Liabilities'
-  }
   const grouped = (rows: typeof assets, classify: (account: typeof assets[number]) => string) => rows.reduce<Record<string, typeof assets>>((acc, account) => {
     const group = classify(account)
     acc[group] ||= []
@@ -44,8 +29,8 @@ export default function BalanceSheet() {
     const result = grouped(rows, classify)
     return Object.entries(result).sort(([a], [b]) => (order.indexOf(a) < 0 ? 99 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 99 : order.indexOf(b)))
   }
-  const assetGroups = orderedGroups(assets, assetGroup, ['Fixed Assets', 'Non-current Assets', 'Current Assets', 'Cash', 'Bank'])
-  const liabilityGroups = orderedGroups(liabilitiesAndCapital, liabilityGroup, ['Capital', 'Long-term Liabilities', 'Short-term Liabilities', 'Other Liabilities'])
+  const assetGroups = orderedGroups(assets, balanceSheetAssetGroup, ['Fixed Assets', 'Non-current Assets', 'Deffered Tax Assets', 'Current Assets', 'Cash', 'Bank'])
+  const liabilityGroups = orderedGroups(liabilitiesAndCapital, balanceSheetLiabilityGroup, ['Capital', 'Long-term Liabilities', 'Deffered Tax Liabilities', 'Short-term Liabilities', 'Other Liabilities'])
   const balanceSheetExport = buildTraditionalTwoSidedExport(
     'Liabilities & Capital', 'Assets',
     liabilitiesAndCapital.map(account => ({ particulars: account.name, amount: account.balance || 0 })),

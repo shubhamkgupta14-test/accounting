@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Database, Trash2 } from 'lucide-react'
+import { Database, PlusCircle, Trash2 } from 'lucide-react'
 import { api, type AdminCollection } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
@@ -15,6 +15,7 @@ export default function CleanDatabase() {
   const [loading, setLoading] = useState(true)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [password, setPassword] = useState('')
+  const [addingDefaults, setAddingDefaults] = useState(false)
 
   useEffect(() => {
     api.adminCollections().then(rows => {
@@ -35,6 +36,25 @@ export default function CleanDatabase() {
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Unable to clean database.')
       setCleaning(false)
+    }
+  }
+
+  const addDefaultAccounts = async () => {
+    setAddingDefaults(true)
+    try {
+      const result = await api.createDefaultAccounts()
+      showToast(
+        'success',
+        result.created > 0
+          ? `Created ${result.created} default ledger ${result.created === 1 ? 'account' : 'accounts'}.`
+          : 'Default ledger accounts already exist.',
+      )
+      const rows = await api.adminCollections()
+      setCollections(rows)
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to add default accounts.')
+    } finally {
+      setAddingDefaults(false)
     }
   }
 
@@ -68,6 +88,17 @@ export default function CleanDatabase() {
       </ConfirmModal>
       <div className="page-header">
         <PageIntro id="clean-db" />
+      </div>
+      <div className="card" style={{ padding: 20, marginBottom: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
+        <div>
+          <h2 style={{ margin: '0 0 6px', fontSize: 16 }}>Add Default Accounts</h2>
+          <p style={{ margin: 0, color: '#64748B', fontSize: 13 }}>
+            Create the essential ledger set for a clean database using the standard seed mapping.
+          </p>
+        </div>
+        <button className="btn btn-primary" disabled={addingDefaults} onClick={() => void addDefaultAccounts()}>
+          {addingDefaults ? <Spinner /> : <PlusCircle size={14} />} {addingDefaults ? 'Adding…' : 'Add Default Accounts'}
+        </button>
       </div>
       <div className="card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 14 }}>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Save, Building2, User, Lock, Bell, Database, Globe, Users, Pencil, Check, X, Plus } from 'lucide-react'
+import { Save, Building2, User, Lock, Bell, Database, Globe, Pencil, Check, X, Plus } from 'lucide-react'
 import { api, type ClosingPreviewEntry, type CompanySettings, type FiscalSettings, type NotificationSettings, type PartnerCapitalSettings, type RetirementSettlementRequest } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
@@ -18,7 +18,6 @@ const tabs: { id: Tab; label: string; icon: React.ReactNode; roles: Array<'super
   { id: 'security', label: 'Security', icon: <Lock size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'data', label: 'Data & Backup', icon: <Database size={14} />, roles: ['superadmin'] },
-  { id: 'partners', label: 'Partner Capital', icon: <Users size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'fiscal', label: 'Fiscal Year', icon: <Globe size={14} />, roles: ['superadmin', 'admin', 'user'] },
 ]
 
@@ -32,11 +31,11 @@ const newPartner = (index: number, sharePercentage = index === 0 ? 100 : 0): Par
   retirement_date: null,
 })
 
-export default function Settings() {
-  const [activeTab, setActiveTab] = useState<Tab>('profile')
+export default function Settings({ partnersOnly = false }: { partnersOnly?: boolean }) {
+  const [activeTab, setActiveTab] = useState<Tab>(partnersOnly ? 'partners' : 'profile')
   const { showToast } = useToast()
   const { user, updateProfile } = useAuth()
-  const { settings, loading: settingsLoading, reload } = useAppSettings()
+  const { settings, loading: settingsLoading, reload, formatMoney } = useAppSettings()
   const { accounts, refresh } = useLedgerData()
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
   const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '', audit_mode: false })
@@ -51,15 +50,19 @@ export default function Settings() {
   const [partnerLifecycleTab, setPartnerLifecycleTab] = useState<'active' | 'retired'>('active')
   const role = user?.role || 'user'
   const canManageGlobalSettings = role === 'superadmin'
-  const visibleTabs = tabs.filter(tab => tab.roles.includes(role))
+  const visibleTabs = partnersOnly ? [] : tabs.filter(tab => tab.roles.includes(role))
 
   useEffect(() => {
     if (user) setProfile({ first_name: user.first_name, last_name: user.last_name, email: user.email, audit_mode: Boolean(user.audit_mode) })
   }, [user])
   useEffect(() => { setCompany(settings.company); setFiscal(settings.fiscal); setNotifications(settings.notifications); setPartners(settings.partners) }, [settings])
   useEffect(() => {
-    if (!visibleTabs.some(tab => tab.id === activeTab)) setActiveTab(visibleTabs[0]?.id || 'profile')
-  }, [activeTab, role])
+    if (partnersOnly) {
+      if (activeTab !== 'partners') setActiveTab('partners')
+    } else if (!visibleTabs.some(tab => tab.id === activeTab)) {
+      setActiveTab(visibleTabs[0]?.id || 'profile')
+    }
+  }, [activeTab, partnersOnly, role])
 
   const saveCompany = async () => {
     try { await api.updateCompanySettings(company); await reload(); showToast('success', 'Company settings saved to the database.') }
@@ -72,6 +75,10 @@ export default function Settings() {
   const savePartners = async () => {
     const activePartners = partners.filter(partner => !partner.retirement_date)
     const total = activePartners.reduce((sum, partner) => sum + Number(partner.share_percentage || 0), 0)
+    if (partners.length > 0 && activePartners.length === 0) {
+      showToast('error', 'At least one active partner is required. The last active partner cannot be retired.')
+      return
+    }
     if (activePartners.length && Math.abs(total - 100) > 0.001) {
       showToast('error', 'Partner profit/loss shares must total 100%.')
       return
@@ -112,7 +119,6 @@ export default function Settings() {
     setRetirementLoading(true)
     try {
       await api.confirmRetirementSettlement(retirementPreview.payload)
-      await api.updatePartnerSettings(partners)
       await Promise.all([reload(), refresh()])
       setRetirementPreview(null)
       setPartnerLifecycleTab('retired')
@@ -122,13 +128,15 @@ export default function Settings() {
     } finally { setRetirementLoading(false) }
   }
   const updateRetirementDate = async (partner: PartnerCapitalSettings) => {
-    if (!partner.retirement_date) return
     setRetirementLoading(true)
     try {
-      await api.updatePartnerRetirementDate(partner.account_name, partner.retirement_date)
+      const result = await api.updatePartnerRetirementDate(partner.account_name, partner.retirement_date)
       await Promise.all([reload(), refresh()])
       setEditingRetirement(null)
-      showToast('success', 'Retirement date and settlement entries recalculated. Reconfirm any pending year-end transfer.')
+      setPartnerLifecycleTab(result.reactivated ? 'active' : 'retired')
+      showToast('success', result.reactivated
+        ? 'Partner reactivated and retirement settlement reversed.'
+        : 'Retirement date and settlement entries recalculated. Reconfirm any pending year-end transfer.')
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Unable to update retirement date.')
     } finally { setRetirementLoading(false) }
@@ -169,7 +177,7 @@ export default function Settings() {
           <section role="dialog" aria-modal="true" aria-label="Confirm partner retirement" className="card" style={{ width: 'min(900px, 100%)', maxHeight: '88vh', overflow: 'auto', padding: 24 }}>
             <h3 style={{ margin: 0, fontSize: 17 }}>Confirm partner retirement</h3>
             <p style={{ margin: '7px 0 18px', color: '#64748B', fontSize: 13 }}>
-              Review the calculated profit/loss and drawings transfers for {retirementPreview.payload.partner_name}. Accounts and amounts are locked. The remaining Capital balance must be paid or transferred manually.
+              Review the profit/loss allocation, drawings transfer, and final Capital-to-Loan transfer for {retirementPreview.payload.partner_name}. Accounts and amounts are locked.
             </p>
             <div style={{ padding: '12px 14px', borderRadius: 8, border: '1px solid #BFDBFE', background: '#EFF6FF', marginBottom: 16, fontSize: 13 }}>
               <strong>Partner Loan Account to be created</strong>
@@ -187,7 +195,11 @@ export default function Settings() {
             {retirementPreview.entries.map(entry => (
               <div key={entry.system_entry_type} style={{ border: '1px solid #E2E8F0', borderRadius: 8, marginBottom: 14, overflow: 'hidden' }}>
                 <div style={{ padding: 12, background: '#F8FAFC' }}>
-                  <strong>{entry.system_entry_type === 'RETIREMENT_PROFIT_TRANSFER' ? 'Pre-retirement Profit/Loss Distribution' : 'Retiring Partner Drawings Transfer'}</strong>
+                  <strong>{entry.system_entry_type === 'RETIREMENT_PROFIT_TRANSFER'
+                    ? 'Pre-retirement Profit/Loss Distribution'
+                    : entry.system_entry_type === 'RETIREMENT_CAPITAL_TO_LOAN'
+                      ? 'Retiring Partner Capital to Loan Transfer'
+                      : 'Retiring Partner Drawings Transfer'}</strong>
                   <div style={{ marginTop: 4, color: '#64748B', fontSize: 12.5 }}>{entry.narration}</div>
                 </div>
                 <table className="data-table">
@@ -210,12 +222,12 @@ export default function Settings() {
         </div>
       )}
       <div className="page-header">
-        <PageIntro id="settings" />
+        <PageIntro id={partnersOnly ? 'partners' : 'settings'} />
       </div>
 
-      <div className="settings-layout" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20 }}>
+      <div className={partnersOnly ? undefined : 'settings-layout'} style={{ display: 'grid', gridTemplateColumns: partnersOnly ? 'minmax(0, 1fr)' : '220px minmax(0, 1fr)', gap: 20 }}>
         {/* Sidebar tabs */}
-        <div className="card settings-tabs" style={{ height: 'fit-content', padding: '8px' }}>
+        {!partnersOnly && <div className="card settings-tabs" style={{ height: 'fit-content', padding: '8px' }}>
           {visibleTabs.map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
               style={{
@@ -234,7 +246,7 @@ export default function Settings() {
               {t.icon} {t.label}
             </button>
           ))}
-        </div>
+        </div>}
 
         {/* Content area */}
         <div>
@@ -451,7 +463,9 @@ export default function Settings() {
                       <div><label className="form-label">Retirement Date</label>
                         <div style={{ display: 'flex', gap: 7 }}>
                           <input className="input" type="date"
-                            disabled={!canManageGlobalSettings || Boolean(settings.partners.find(row => row.account_name === partner.account_name)?.retirement_date) && editingRetirement !== partner.account_name}
+                            disabled={!canManageGlobalSettings
+                              || (!partner.retirement_date && partners.filter(row => !row.retirement_date).length <= 1)
+                              || Boolean(settings.partners.find(row => row.account_name === partner.account_name)?.retirement_date) && editingRetirement !== partner.account_name}
                             min={partner.admission_date || undefined} value={partner.retirement_date || ''}
                             onChange={event => setPartners(rows => {
                               const retirementDate = event.target.value || null
@@ -497,7 +511,7 @@ export default function Settings() {
               {partnerLifecycleTab === 'retired' && (
                 <div style={{ border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
                   <table className="data-table">
-                    <thead><tr><th>Partner Name</th><th>Account Code</th><th>Retirement Date</th><th>Settlement Status</th></tr></thead>
+                    <thead><tr><th>Partner Name</th><th>Account Code</th><th>Retirement Date</th><th style={{ textAlign: 'right' }}>Loan Amount</th><th>Settlement Status</th></tr></thead>
                     <tbody>
                       {retiredPartnerRows.map(({ partner, index }) => {
                         const capitalBalance = accountBalance(partner.account_name)
@@ -524,10 +538,13 @@ export default function Settings() {
                                   </>}
                             </div>
                           </td>
+                          <td className="num" style={{ fontWeight: 700, color: Math.abs(loanBalance) < .005 ? '#15803D' : '#DC2626' }}>
+                            {formatMoney(Math.abs(loanBalance))}
+                          </td>
                           <td><span className={`badge ${settled ? 'badge-green' : 'badge-amber'}`}>{settled ? 'Settled · No Dues' : 'Outstanding Balance'}</span></td>
                         </tr>
                       })}
-                      {retiredPartnerRows.length === 0 && <tr><td colSpan={4}><div className="empty-state" style={{ padding: 32 }}>No retired partners.</div></td></tr>}
+                      {retiredPartnerRows.length === 0 && <tr><td colSpan={5}><div className="empty-state" style={{ padding: 32 }}>No retired partners.</div></td></tr>}
                     </tbody>
                   </table>
                 </div>

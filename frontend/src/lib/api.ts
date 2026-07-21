@@ -149,7 +149,7 @@ export interface FiscalSettings {
 }
 
 export interface ClosingPreviewEntry {
-  system_entry_type: "PROFIT_TRANSFER" | "DRAWINGS_TRANSFER" | "RETIREMENT_PROFIT_TRANSFER" | "RETIREMENT_DRAWINGS_TRANSFER";
+  system_entry_type: "PROFIT_TRANSFER" | "DRAWINGS_TRANSFER" | "RETIREMENT_PROFIT_TRANSFER" | "RETIREMENT_DRAWINGS_TRANSFER" | "RETIREMENT_CAPITAL_TO_LOAN";
   voucher_no: string;
   date: string;
   narration: string;
@@ -425,6 +425,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ collections, password }),
     }),
+  createDefaultAccounts: () =>
+    request<{ created: number; existing: number; total: number }>("/admin/default-accounts", {
+      method: "POST",
+    }),
   settings: () => request<AppSettings>("/settings"),
   updateCompanySettings: (payload: CompanySettings) =>
     request<CompanySettings>("/settings/company", {
@@ -451,8 +455,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  updatePartnerRetirementDate: (accountName: string, retirementDate: string) =>
-    request<{ updated: number; entries: ClosingPreviewEntry[] }>("/settings/partners/retirement-date", {
+  updatePartnerRetirementDate: (accountName: string, retirementDate: string | null) =>
+    request<{ updated: number; entries: ClosingPreviewEntry[]; reactivated?: boolean }>("/settings/partners/retirement-date", {
       method: "PATCH",
       body: JSON.stringify({ account_name: accountName, retirement_date: retirementDate }),
     }),

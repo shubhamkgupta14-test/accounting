@@ -3,6 +3,7 @@ import pytest
 
 @pytest.mark.parametrize("method,path,payload", [
     ("post", "/api/accounts", {"code": "NOPE", "name": "Nope", "type": "Asset", "group": "Test", "opening_balance": 0, "is_active": True}),
+    ("post", "/api/admin/default-accounts", None),
     ("get", "/api/settings/export", None),
     ("get", "/api/auth/users", None),
     ("get", "/api/admin/collections", None),
@@ -188,3 +189,60 @@ def test_clean_database_requires_current_superadmin_password(client, login):
         "password": "incorrect-password",
     })
     assert wrong.status_code == 403
+
+
+def test_superadmin_can_create_only_seed_aligned_default_accounts(client, login):
+    from app.default_accounts import ESSENTIAL_DEFAULT_ACCOUNTS
+
+    saved_accounts = []
+
+    async def remove_mapped_accounts():
+        from app.core.database import get_database
+
+        db = get_database()
+        names = [account["name"] for account in ESSENTIAL_DEFAULT_ACCOUNTS]
+        saved_accounts.extend(await db.accounts.find({"name": {"$in": names}}).to_list(length=None))
+        await db.accounts.delete_many({"name": {"$in": names}})
+
+    async def restore_mapped_accounts():
+        from app.core.database import get_database
+
+        db = get_database()
+        names = [account["name"] for account in ESSENTIAL_DEFAULT_ACCOUNTS]
+        await db.accounts.delete_many({"name": {"$in": names}})
+        if saved_accounts:
+            await db.accounts.insert_many(saved_accounts)
+
+    client.portal.call(remove_mapped_accounts)
+    try:
+        login("superadmin")
+        expected_count = len(ESSENTIAL_DEFAULT_ACCOUNTS)
+        first = client.post("/api/admin/default-accounts")
+        assert first.status_code == 201
+        assert first.json() == {"created": expected_count, "existing": 0, "total": expected_count}
+
+        rows = client.get("/api/accounts").json()
+        mapped_rows = {row["name"]: row for row in rows if row["name"] in {
+            account["name"] for account in ESSENTIAL_DEFAULT_ACCOUNTS
+        }}
+        assert set(mapped_rows) == {account["name"] for account in ESSENTIAL_DEFAULT_ACCOUNTS}
+        for expected in ESSENTIAL_DEFAULT_ACCOUNTS:
+            actual = mapped_rows[expected["name"]]
+            assert {field: actual[field] for field in ("code", "name", "type", "group")} == expected
+            assert actual["opening_balance"] == 0
+
+        second = client.post("/api/admin/default-accounts")
+        assert second.status_code == 201
+        assert second.json() == {"created": 0, "existing": expected_count, "total": expected_count}
+    finally:
+        client.portal.call(restore_mapped_accounts)
+
+
+def test_clean_database_default_mapping_matches_seed():
+    from app.default_accounts import ESSENTIAL_DEFAULT_ACCOUNTS
+    from scripts.seed import DEFAULT_ACCOUNTS
+
+    seeded_by_name = {account["name"]: account for account in DEFAULT_ACCOUNTS}
+    for expected in ESSENTIAL_DEFAULT_ACCOUNTS:
+        seeded = seeded_by_name[expected["name"]]
+        assert {field: seeded[field] for field in ("code", "name", "type", "group")} == expected
