@@ -4,11 +4,12 @@ import { api, type ClosingPreviewEntry, type CompanySettings, type FiscalSetting
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import { useAuth } from '../context/AuthContext'
-import { downloadJson, exportRowsAsExcel } from '../lib/export'
+import { downloadJson, exportRowsAsExcel, formatReportNumber } from '../lib/export'
 import { useAppSettings } from '../context/SettingsContext'
 import PasswordInput from '../components/PasswordInput'
 import { SettingsSkeleton } from '../components/Loading'
 import { useLedgerData } from '../context/DataContext'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 type Tab = 'company' | 'profile' | 'security' | 'notifications' | 'data' | 'fiscal' | 'partners'
 
@@ -184,7 +185,7 @@ export default function Settings({ partnersOnly = false }: { partnersOnly?: bool
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', gap: 12, marginTop: 9 }}>
                 <div><span style={{ color: '#64748B' }}>Account Name</span><div style={{ fontWeight: 600 }}>{retirementPreview.payload.partner_name} Loan</div></div>
                 <div><span style={{ color: '#64748B' }}>Type</span><div style={{ fontWeight: 600 }}>Liability</div></div>
-                <div><span style={{ color: '#64748B' }}>Group</span><div style={{ fontWeight: 600 }}>Current Liabilities</div></div>
+                <div><span style={{ color: '#64748B' }}>Group</span><div style={{ fontWeight: 600 }}>Partner Loans</div></div>
               </div>
             </div>
             {retirementPreview.entries.length === 0 && (
@@ -206,8 +207,8 @@ export default function Settings({ partnersOnly = false }: { partnersOnly?: bool
                   <thead><tr><th>Account</th><th className="num dr-heading">Debit (₹)</th><th className="num cr-heading">Credit (₹)</th></tr></thead>
                   <tbody>{entry.entries.map((line, index) => <tr key={`${line.account}-${index}`}>
                     <td>{line.account}</td>
-                    <td className="num dr-amount">{line.debit ? line.debit.toLocaleString('en-IN') : ''}</td>
-                    <td className="num cr-amount">{line.credit ? line.credit.toLocaleString('en-IN') : ''}</td>
+                    <td className="num dr-amount">{line.debit ? formatReportNumber(line.debit) : ''}</td>
+                    <td className="num cr-amount">{line.credit ? formatReportNumber(line.credit) : ''}</td>
                   </tr>)}</tbody>
                 </table>
               </div>
@@ -544,7 +545,7 @@ export default function Settings({ partnersOnly = false }: { partnersOnly?: bool
                           <td><span className={`badge ${settled ? 'badge-green' : 'badge-amber'}`}>{settled ? 'Settled · No Dues' : 'Outstanding Balance'}</span></td>
                         </tr>
                       })}
-                      {retiredPartnerRows.length === 0 && <tr><td colSpan={5}><div className="empty-state" style={{ padding: 32 }}>No retired partners.</div></td></tr>}
+                      {retiredPartnerRows.length === 0 && <EmptyTableRow colSpan={5} />}
                     </tbody>
                   </table>
                 </div>

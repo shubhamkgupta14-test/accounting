@@ -197,14 +197,14 @@ function rowsToHtml(rows: Record<string, unknown>[]) {
     return [
       value.includes('date') ? 'date-cell' : '',
       value.includes('narration') || value.includes('particular') ? 'narration-cell' : '',
-      value.includes('debit') || value === 'dr' || value.includes('dr.') ? 'debit-cell num' : '',
-      value.includes('credit') || value === 'cr' || value.includes('cr.') ? 'credit-cell num' : '',
-      value.includes('balance') ? 'balance-cell num' : '',
+      value.includes('debit') || value === 'dr' || value.includes('dr.') || value.includes('receipt') || value.includes('inflow') || value.includes('income') ? 'debit-cell num' : '',
+      value.includes('credit') || value === 'cr' || value.includes('cr.') || value.includes('payment') || value.includes('outflow') || value.includes('expense') ? 'credit-cell num' : '',
+      value.includes('balance') || value.includes('amount') || value.includes('net') || value.includes('total') ? 'balance-cell num' : '',
     ].filter(Boolean).join(' ')
   }
   const isTotal = (row: Record<string, unknown>) => Object.values(row).some(value => /^(total|net balance)$/i.test(String(value).trim()))
   const pdfValue = (value: unknown) => typeof value === 'number'
-    ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
+    ? new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
     : String(value ?? '')
   return `<table><thead><tr>${headers.map(h => `<th class="${classes(h)}">${escapeExportHtml(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr${isTotal(row) ? ' class="total-row"' : ''}>${headers.map(h => `<td class="${classes(h)}" style="white-space:${h.toLowerCase().includes('date') ? 'nowrap' : 'pre-wrap'}">${escapeExportHtml(pdfValue(row[h]))}</td>`).join('')}</tr>`).join('')}</tbody></table>`
 }

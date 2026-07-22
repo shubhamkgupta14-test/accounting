@@ -84,7 +84,7 @@ async def _post_profit_transfer(db, closing_date: date, current_user: dict, *, p
         ):
             continue
         account = await db.accounts.find_one({
-            "name": partner.get("account_name"), "type": "Equity", "group": "Capital"
+            "name": partner.get("account_name"), "type": "Equity", "group": {"$in": ["Partner Capital", "Capital"]}
         })
         if account:
             capital_accounts.append((account, share))
@@ -92,7 +92,7 @@ async def _post_profit_transfer(db, closing_date: date, current_user: dict, *, p
         capital = await db.accounts.find_one({"name": "Capital", "type": "Equity"})
         if capital is None:
             capital = await db.accounts.find_one({
-                "type": "Equity", "group": "Capital", "name": {"$ne": "Profit & Loss Account"}
+                "type": "Equity", "group": {"$in": ["Proprietor's Capital", "Partner Capital", "Share Capital", "Capital"]}, "name": {"$ne": "Profit & Loss Account"}
             }, sort=[("code", 1)])
         if capital:
             capital_accounts = [(capital, 100.0)]
@@ -104,7 +104,7 @@ async def _post_profit_transfer(db, closing_date: date, current_user: dict, *, p
             {"name": "Profit & Loss Account"},
             {"$setOnInsert": {
                 "code": "SYS-PNL", "name": "Profit & Loss Account", "type": "Equity",
-                "group": "Capital", "opening_balance": 0.0, "is_active": True,
+                "group": "Current Year Profit and Loss", "opening_balance": 0.0, "is_active": True,
             }},
             upsert=True,
         )
@@ -146,7 +146,7 @@ async def _post_drawings_transfer(db, closing_date: date, current_user: dict, *,
     legacy_voucher = f"DRAWINGS-TRANSFER-{period.start_date.year}-{str(period.end_date.year)[-2:]}"
     existing, voucher_no = await _system_voucher(db, "DRAWINGS_TRANSFER", period, legacy_voucher)
     drawings_accounts = await db.accounts.find({
-        "type": "Equity", "group": "Capital", "name": {"$regex": "drawings?", "$options": "i"}
+        "type": "Equity", "group": {"$in": ["Drawings", "Capital"]}, "name": {"$regex": "drawings?", "$options": "i"}
     }).sort("code", 1).to_list(length=None)
     names = [account["name"] for account in drawings_accounts]
     if not names:
@@ -207,7 +207,7 @@ async def _post_drawings_transfer(db, closing_date: date, current_user: dict, *,
                 )
             capital_name = str(matches[0].get("account_name", "")).strip()
             capital = await db.accounts.find_one({
-                "name": capital_name, "type": "Equity", "group": "Capital",
+                "name": capital_name, "type": "Equity", "group": {"$in": ["Partner Capital", "Capital"]},
             })
             if capital is None:
                 raise HTTPException(
@@ -298,15 +298,15 @@ def _header(value) -> str:
 def _suggest_account(name: str, index: int) -> dict:
     text = name.lower()
     if any(word in text for word in ("sale", "income", "commission", "interest received")):
-        account_type, group = "Income", "Indirect Income"
+        account_type, group = "Income", "Other Income"
     elif any(word in text for word in ("expense", "purchase", "rent", "salary", "wages", "charges")):
-        account_type, group = "Expense", "Indirect Expenses"
+        account_type, group = "Expense", "Other Expenses"
     elif any(word in text for word in ("payable", "creditor", "loan", "liability")):
-        account_type, group = "Liability", "Current Liabilities"
+        account_type, group = "Liability", "Other Current Liabilities"
     elif any(word in text for word in ("capital", "drawings", "equity")):
-        account_type, group = "Equity", "Capital"
+        account_type, group = "Equity", "Proprietor's Capital"
     else:
-        account_type, group = "Asset", "Current Assets"
+        account_type, group = "Asset", "Other Current Assets"
     return {"source_name": name, "name": name, "code": f"IMP-{index:03d}", "type": account_type, "group": group}
 
 

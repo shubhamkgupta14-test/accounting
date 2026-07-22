@@ -3,6 +3,8 @@ import { GripHorizontal, X } from 'lucide-react'
 import { api, type Account, type LedgerRow } from '../lib/api'
 import { useAppSettings } from '../context/SettingsContext'
 import { Spinner } from './Loading'
+import { formatReportNumber } from '../lib/export'
+import EmptyTableRow from './EmptyTableRow'
 
 export default function LedgerQuickView() {
   const { formatDate, currencySymbol } = useAppSettings()
@@ -74,7 +76,7 @@ export default function LedgerQuickView() {
         <div style={{ padding: '12px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ color: '#64748B', fontSize: 13 }}>{account ? `${account.type} · ${account.group} · ${account.code}` : accountName}</span>
           <strong style={{ color: closing >= 0 ? '#059669' : '#DC2626' }}>
-            Closing Balance: {Math.abs(closing).toLocaleString('en-IN')}
+            Closing Balance: {formatReportNumber(Math.abs(closing))}
           </strong>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
@@ -84,18 +86,18 @@ export default function LedgerQuickView() {
               <tbody>
                 {rows.map((row, index) => <tr key={`${row.voucher_no}-${index}`}>
                   <td className="date-cell">{formatDate(row.date)}</td><td>{row.particulars}</td><td className="mono">{row.voucher_no}</td>
-                  <td className="num dr-amount">{row.debit ? row.debit.toLocaleString('en-IN') : '—'}</td>
-                  <td className="num cr-amount">{row.credit ? row.credit.toLocaleString('en-IN') : '—'}</td>
-                  <td className="num total-amount">{Math.abs(row.balance).toLocaleString('en-IN')}</td>
+                  <td className="num dr-amount">{row.debit ? formatReportNumber(row.debit) : '—'}</td>
+                  <td className="num cr-amount">{row.credit ? formatReportNumber(row.credit) : '—'}</td>
+                  <td className="num total-amount">{formatReportNumber(Math.abs(row.balance))}</td>
                 </tr>)}
-                {!rows.length && <tr><td colSpan={6}><div className="empty-state">No posted entries for this account.</div></td></tr>}
+                {!rows.length && <EmptyTableRow colSpan={6} />}
               </tbody>
               {rows.length > 0 && <tfoot>
                 <tr className="totals-row">
                   <td colSpan={3} style={{ padding: '11px 16px', fontWeight: 700 }}>Total / Closing Balance</td>
-                  <td className="num dr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalDebit.toLocaleString('en-IN')}</td>
-                  <td className="num cr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalCredit.toLocaleString('en-IN')}</td>
-                  <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700, color: '#2563EB' }}>{Math.abs(closing).toLocaleString('en-IN')}</td>
+                  <td className="num dr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{formatReportNumber(totalDebit)}</td>
+                  <td className="num cr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{formatReportNumber(totalCredit)}</td>
+                  <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700, color: '#2563EB' }}>{formatReportNumber(Math.abs(closing))}</td>
                 </tr>
               </tfoot>}
             </table>

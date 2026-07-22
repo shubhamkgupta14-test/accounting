@@ -5,13 +5,16 @@ import ExportMenu from '../components/ExportMenu'
 import PageIntro from '../components/PageIntro'
 import TablePagination from '../components/TablePagination'
 import { useAppSettings } from '../context/SettingsContext'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function BankBook() {
   const { bankTransactions, accounts } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
   const bankAccounts = accounts.filter(account =>
     account.type === 'Asset' &&
-    (account.group.toLowerCase() === 'bank' || account.name.toLowerCase().includes('bank'))
+    (['bank', 'bank accounts'].includes(account.group.toLowerCase()) || account.name.toLowerCase().includes('bank'))
   )
   const [dateFilter, setDateFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
@@ -22,7 +25,7 @@ export default function BankBook() {
   const payments = filtered.filter(r => r.type === 'Payment')
   const closing = filtered[filtered.length - 1]?.balance ?? 0
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
   const exportHeading = dateFilter === 'custom' ? `${dateFrom || 'Beginning'} to ${dateTo || 'Present'}` : dateFilter === 'all' ? 'All financial years' : `FY ${dateFilter}-${String(Number(dateFilter) + 1).slice(-2)}`
 
@@ -95,23 +98,19 @@ export default function BankBook() {
                   <td><span className="narration-text">{r.particulars}</span></td>
                   <td><span className="mono" style={{ fontSize: 12.5, color: '#64748B' }}>{r.voucherNo}</span></td>
                   <td><span className={`badge ${r.type === 'Receipt' ? 'badge-green' : 'badge-red'}`}>{r.type}</span></td>
-                  <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? r.dr.toLocaleString('en-IN') : '-'}</td>
-                  <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? r.cr.toLocaleString('en-IN') : '-'}</td>
-                  <td className="num total-amount" style={{ fontWeight: 600 }}>{r.balance.toLocaleString('en-IN')}</td>
+                  <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? formatReportNumber(r.dr) : '-'}</td>
+                  <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? formatReportNumber(r.cr) : '-'}</td>
+                  <td className="num total-amount" style={{ fontWeight: 600 }}>{formatReportNumber(r.balance)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={7}><div className="empty-state" style={{ padding: '36px 20px' }}>No bank transactions yet.</div></td>
-                </tr>
-              )}
+              {filtered.length === 0 && <EmptyTableRow colSpan={7} />}
             </tbody>
             <tfoot>
               <tr className="totals-row">
                 <td colSpan={4} style={{ padding: '11px 16px', fontWeight: 700 }}>Closing Balance</td>
-                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#059669' }}>{receipts.reduce((s, r) => s + r.dr, 0).toLocaleString('en-IN')}</td>
-                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#DC2626' }}>{payments.reduce((s, r) => s + r.cr, 0).toLocaleString('en-IN')}</td>
-                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#2563EB' }}>{closing.toLocaleString('en-IN')}</td>
+                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#059669' }}>{formatReportNumber(receipts.reduce((s, r) => s + r.dr, 0))}</td>
+                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#DC2626' }}>{formatReportNumber(payments.reduce((s, r) => s + r.cr, 0))}</td>
+                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#2563EB' }}>{formatReportNumber(closing)}</td>
               </tr>
             </tfoot>
           </table>

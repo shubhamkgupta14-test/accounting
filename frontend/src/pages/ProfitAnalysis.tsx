@@ -2,6 +2,8 @@ import ExportMenu from '../components/ExportMenu'
 import { useLedgerData } from '../context/DataContext'
 import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
+import { formatReportNumber } from '../lib/export'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function ProfitAnalysis() {
   const { accounts, journalEntries } = useLedgerData()
@@ -23,8 +25,8 @@ export default function ProfitAnalysis() {
       { Month: 'Total', [`Income (${currencySymbol})`]: income, [`Expenses (${currencySymbol})`]: expenses, [`Net Profit / Loss (${currencySymbol})`]: income - expenses },
     ]} /></div>
     <div className="card"><table className="data-table"><thead><tr><th>Month</th><th className="num dr-heading">Income ({currencySymbol})</th><th className="num cr-heading">Expenses ({currencySymbol})</th><th className="num total-amount">Net Profit / Loss ({currencySymbol})</th></tr></thead>
-      <tbody>{rows.map(row => <tr key={row.key}><td>{row.month}</td><td className="num dr-amount">{row.income.toLocaleString('en-IN')}</td><td className="num cr-amount">{row.expenses.toLocaleString('en-IN')}</td><td className="num total-amount" style={{ fontWeight: 700 }}>{row.profit.toLocaleString('en-IN')}</td></tr>)}</tbody>
-      <tfoot><tr><td style={{ padding: '12px 16px', fontWeight: 800 }}>Total</td><td className="num dr-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{income.toLocaleString('en-IN')}</td><td className="num cr-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{expenses.toLocaleString('en-IN')}</td><td className="num total-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{(income - expenses).toLocaleString('en-IN')}</td></tr></tfoot>
+      <tbody>{rows.length === 0 && <EmptyTableRow colSpan={4} />}{rows.map(row => <tr key={row.key}><td>{row.month}</td><td className="num dr-amount">{formatReportNumber(row.income)}</td><td className="num cr-amount">{formatReportNumber(row.expenses)}</td><td className="num total-amount" style={{ fontWeight: 700 }}>{formatReportNumber(row.profit)}</td></tr>)}</tbody>
+      <tfoot><tr><td style={{ padding: '12px 16px', fontWeight: 800 }}>Total</td><td className="num dr-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{formatReportNumber(income)}</td><td className="num cr-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{formatReportNumber(expenses)}</td><td className="num total-amount" style={{ padding: '12px 16px', fontWeight: 800 }}>{formatReportNumber(income - expenses)}</td></tr></tfoot>
     </table></div>
   </div>
 }

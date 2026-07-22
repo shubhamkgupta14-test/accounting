@@ -190,7 +190,7 @@ export interface AppSettings {
   partners: PartnerCapitalSettings[];
 }
 export interface ReportPeriod { start_date: string; end_date: string }
-export interface FinancialReportRow { code: string; name: string; group: string; amount: number; calculated?: boolean }
+export interface FinancialReportRow { code: string; name: string; type?: Account['type']; group: string; amount: number; calculated?: boolean }
 export interface TrialBalanceRow extends FinancialReportRow {
   type: Account['type']; opening_balance: number; period_movement: number; closing_balance: number; debit: number; credit: number
 }
@@ -451,7 +451,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   confirmRetirementSettlement: (payload: RetirementSettlementRequest) =>
-    request<{ created: number; entries: ClosingPreviewEntry[]; loan_account: { name: string; code: string; type: 'Liability'; group: 'Current Liabilities' } }>("/settings/partners/retirement-confirm", {
+    request<{ created: number; entries: ClosingPreviewEntry[]; loan_account: { name: string; code: string; type: 'Liability'; group: 'Partner Loans' } }>("/settings/partners/retirement-confirm", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

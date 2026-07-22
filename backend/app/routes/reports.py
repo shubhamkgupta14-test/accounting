@@ -116,7 +116,8 @@ async def dashboard(graph_start_date: date | None = None, graph_end_date: date |
     }
     cash_bank_names = {
         account["name"] for account in accounts
-        if "cash" in account["name"].lower() or account.get("group", "").lower() == "bank"
+        if "cash" in account["name"].lower()
+        or account.get("group", "").lower() in {"bank", "bank accounts", "cash-in-hand", "cash and cash equivalents"}
     }
     monthly = defaultdict(lambda: {"revenue": 0.0, "expenses": 0.0, "inflow": 0.0, "outflow": 0.0})
     expense_breakdown = defaultdict(float)
@@ -138,7 +139,11 @@ async def dashboard(graph_start_date: date | None = None, graph_end_date: date |
             normalized = account_name.strip().lower()
             return (
                 normalized in {"purchase", "purchases", "sale", "sales"}
-                or account_groups.get(account_name) in {"Direct Expenses", "Direct Income"}
+                or account_groups.get(account_name) in {
+                    "Direct Expenses", "Direct Income", "Cost of Goods Sold",
+                    "Cost of Materials Consumed", "Purchases of Stock-in-Trade",
+                    "Changes in Inventories", "Revenue from Operations",
+                }
             )
         has_direct_counterpart = any(
             line.get("account") not in stock_names

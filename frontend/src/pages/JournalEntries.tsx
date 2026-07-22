@@ -14,6 +14,9 @@ import AccountSelect from '../components/AccountSelect'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import ConfirmModal from '../components/ConfirmModal'
 import { accountGroups, defaultAccountGroup, type AccountType } from '../lib/accountGroups'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 interface EntryRow { account: string; dr: number; cr: number; autoAmount?: 'dr' | 'cr' }
 interface JournalForm {
@@ -50,7 +53,7 @@ export default function JournalEntries() {
   const [loadingClosingPreview, setLoadingClosingPreview] = useState(false)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -299,7 +302,6 @@ export default function JournalEntries() {
 
   const completeImport = async (file: File, ledgers?: ImportedLedger[]) => {
     const result = await api.importJournalsExcel(file, ledgers)
-    setPage(1)
     setReloadKey(key => key + 1)
     await refresh()
     setPendingImport(null)
@@ -549,8 +551,8 @@ export default function JournalEntries() {
                   <thead><tr><th>Account</th><th className="num dr-heading">Debit ({currencySymbol})</th><th className="num cr-heading">Credit ({currencySymbol})</th></tr></thead>
                   <tbody>{entry.entries.map((line, index) => <tr key={`${line.account}-${index}`}>
                     <td>{line.account}</td>
-                    <td className="num dr-amount">{line.debit ? line.debit.toLocaleString('en-IN') : ''}</td>
-                    <td className="num cr-amount">{line.credit ? line.credit.toLocaleString('en-IN') : ''}</td>
+                    <td className="num dr-amount">{line.debit ? formatReportNumber(line.debit) : ''}</td>
+                    <td className="num cr-amount">{line.credit ? formatReportNumber(line.credit) : ''}</td>
                   </tr>)}</tbody>
                 </table>
               </div>
@@ -765,10 +767,10 @@ export default function JournalEntries() {
                 <tr style={{ borderTop: '2px solid #E2E8F0', background: '#F8FAFC' }}>
                   <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#475569' }}>Total</td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13.5, fontWeight: 700, color: '#2563EB' }}>
-                    {totalDr(form.rows).toLocaleString('en-IN')}
+                    {formatReportNumber(totalDr(form.rows))}
                   </td>
                   <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13.5, fontWeight: 700, color: '#2563EB' }}>
-                    {totalCr(form.rows).toLocaleString('en-IN')}
+                    {formatReportNumber(totalCr(form.rows))}
                   </td>
                   <td />
                 </tr>
@@ -783,7 +785,7 @@ export default function JournalEntries() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {!balanced && totalDr(form.rows) > 0 && (
                 <span style={{ fontSize: 12, color: '#EF4444', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  Difference: {Math.abs(totalDr(form.rows) - totalCr(form.rows)).toLocaleString('en-IN')}
+                  Difference: {formatReportNumber(Math.abs(totalDr(form.rows) - totalCr(form.rows)))}
                 </span>
               )}
               {!rowsHaveOneSideOnly && (
@@ -854,6 +856,7 @@ export default function JournalEntries() {
             </thead>
             <tbody>
               {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite ? 9 : 8} />}
+              {!loadingRows && paged.length === 0 && <EmptyTableRow colSpan={canWrite ? 9 : 8} />}
               {!loadingRows && paged.map(e => {
                 const dr = e.entries.reduce((s, r) => s + r.dr, 0)
                 const cr = e.entries.reduce((s, r) => s + r.cr, 0)
@@ -871,8 +874,8 @@ export default function JournalEntries() {
                       <td className="date-cell"><span className="mono" style={{ fontSize: 12.5 }}>{formatDate(e.date)}</span></td>
                       <td><span className="narration-text">{e.narration}</span></td>
                       <td style={{ fontSize: 12, color: '#64748B' }}>{e.entries.length} lines</td>
-                      <td className="num dr-amount">{dr.toLocaleString('en-IN')}</td>
-                      <td className="num cr-amount">{cr.toLocaleString('en-IN')}</td>
+                      <td className="num dr-amount">{formatReportNumber(dr)}</td>
+                      <td className="num cr-amount">{formatReportNumber(cr)}</td>
                       {canWrite && <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={event => event.stopPropagation()}>
                         <div className="table-action-icons">
                         <button className="btn btn-ghost btn-icon btn-icon-primary" title="Duplicate as a new journal entry" aria-label={`Duplicate journal entry ${e.voucherNo}`} onClick={() => duplicateEntry(e)}><Copy size={14} /></button>
@@ -896,8 +899,8 @@ export default function JournalEntries() {
                               {e.entries.map((row, i) => (
                                 <tr key={i}>
                                   <td style={{ padding: '4px 10px', color: '#334155' }}>{row.account}</td>
-                                  <td style={{ padding: '4px 10px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', color: row.dr ? '#059669' : '#CBD5E1' }}>{row.dr ? row.dr.toLocaleString('en-IN') : '—'}</td>
-                                  <td style={{ padding: '4px 10px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', color: row.cr ? '#DC2626' : '#CBD5E1' }}>{row.cr ? row.cr.toLocaleString('en-IN') : '—'}</td>
+                                  <td style={{ padding: '4px 10px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', color: row.dr ? '#059669' : '#CBD5E1' }}>{row.dr ? formatReportNumber(row.dr) : '—'}</td>
+                                  <td style={{ padding: '4px 10px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', color: row.cr ? '#DC2626' : '#CBD5E1' }}>{row.cr ? formatReportNumber(row.cr) : '—'}</td>
                                 </tr>
                               ))}
                             </tbody>

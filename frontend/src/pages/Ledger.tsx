@@ -12,6 +12,9 @@ import { TableSkeletonRows } from '../components/Loading'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import AccountDrilldown from '../components/AccountDrilldown'
 import { buildTraditionalTwoSidedExport, escapeExportHtml, exportElementAsPdf, exportRowsAsExcel, formatReportNumber } from '../lib/export'
+import { actualAccountGroup } from '../lib/accountGroups'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 interface Props {
   onNavigate?: (page: PageId) => void
@@ -50,7 +53,7 @@ export default function Ledger({ onNavigate }: Props) {
   const [exportRows, setExportRows] = useState<LedgerRow[]>([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const [totalRows, setTotalRows] = useState(0)
   const [activeAccountNames, setActiveAccountNames] = useState<Set<string>>(new Set())
   const [loadingAccounts, setLoadingAccounts] = useState(true)
@@ -62,7 +65,7 @@ export default function Ledger({ onNavigate }: Props) {
   const account = ledgerAccounts.find(a => a.name === selectedName)
   const filteredAccounts = ledgerAccounts.filter(a =>
     a.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.group.toLowerCase().includes(search.toLowerCase())
+    actualAccountGroup(a).toLowerCase().includes(search.toLowerCase())
   )
 
   useEffect(() => {
@@ -225,7 +228,7 @@ export default function Ledger({ onNavigate }: Props) {
                     >
                       <div>
                         <div style={{ fontSize: 13, fontWeight: selectedName === a.name ? 600 : 400, color: selectedName === a.name ? '#1D4ED8' : '#0F172A' }}><AccountDrilldown account={a.name} /></div>
-                        <div className="narration-text">{a.group}</div>
+                        <div className="narration-text">{actualAccountGroup(a)}</div>
                       </div>
                       {selectedName === a.name && <ChevronRight size={12} color="#2563EB" />}
                     </div>
@@ -243,7 +246,7 @@ export default function Ledger({ onNavigate }: Props) {
                 <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{account.name}</h2>
                 <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <span className="badge badge-blue">{account.type}</span>
-                  <span className="badge badge-slate">{account.group}</span>
+                  <span className="badge badge-slate">{actualAccountGroup(account)}</span>
                   <span style={{ fontSize: 12, color: '#64748B' }}>A/c Code: {account.id}</span>
                 </div>
               </div>
@@ -282,23 +285,19 @@ export default function Ledger({ onNavigate }: Props) {
                     <td><span className="narration-text">{r.particulars}</span></td>
                     <td><span className="mono" style={{ fontSize: 12.5, color: '#64748B' }}>{r.voucherNo}</span></td>
                     <td><span className={`badge ${r.type === 'Receipt' ? 'badge-green' : 'badge-red'}`}>{r.type}</span></td>
-                    <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? r.dr.toLocaleString('en-IN') : '-'}</td>
-                    <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? r.cr.toLocaleString('en-IN') : '-'}</td>
-                    <td className="num total-amount" style={{ fontWeight: 600 }}>{Math.abs(r.balance).toLocaleString('en-IN')} {balanceSide(r.balance)}</td>
+                    <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? formatReportNumber(r.dr) : '-'}</td>
+                    <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? formatReportNumber(r.cr) : '-'}</td>
+                    <td className="num total-amount" style={{ fontWeight: 600 }}>{formatReportNumber(Math.abs(r.balance))} {balanceSide(r.balance)}</td>
                   </tr>
                 ))}
-                {!loading && rows.length === 0 && (
-                  <tr>
-                    <td colSpan={8}><div className="empty-state" style={{ padding: '36px 20px' }}>No journal entries posted for this account.</div></td>
-                  </tr>
-                )}
+                {!loading && rows.length === 0 && <EmptyTableRow colSpan={8} />}
               </tbody>
               <tfoot>
                 <tr className="totals-row">
                   <td colSpan={5} style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700 }}>Page totals</td>
-                  <td className="num dr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalDr.toLocaleString('en-IN')}</td>
-                  <td className="num cr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{totalCr.toLocaleString('en-IN')}</td>
-                  <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{Math.abs(closingBalance).toLocaleString('en-IN')} {balanceSide(closingBalance)}</td>
+                  <td className="num dr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{formatReportNumber(totalDr)}</td>
+                  <td className="num cr-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{formatReportNumber(totalCr)}</td>
+                  <td className="num total-amount" style={{ padding: '11px 16px', fontWeight: 700 }}>{formatReportNumber(Math.abs(closingBalance))} {balanceSide(closingBalance)}</td>
                 </tr>
               </tfoot>
             </table>

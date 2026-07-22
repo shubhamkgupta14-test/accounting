@@ -6,7 +6,8 @@ import { useAppSettings } from '../context/SettingsContext'
 import { useFinancialReport } from '../hooks/useFinancialReport'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import AccountDrilldown from '../components/AccountDrilldown'
-import { buildTraditionalTwoSidedExport } from '../lib/export'
+import { buildTraditionalTwoSidedExport, formatReportNumber } from '../lib/export'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function ProfitLoss() {
   const { settings, formatMoney } = useAppSettings()
@@ -62,17 +63,19 @@ export default function ProfitLoss() {
           <div style={{ borderRight: '1px solid #E2E8F0' }}>
             <div style={{ background: '#ECFDF5', padding: '10px 20px', borderBottom: '1px solid #A7F3D0' }}><span style={{ fontSize: 12, fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Dr - Expenses</span></div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
-              {grossProfit < 0 && <tr style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Loss brought down" />Gross Loss b/d</span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{Math.abs(grossProfit).toLocaleString('en-IN')}</td></tr>}
-              {expenses.map(account => <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{(account.balance || 0).toLocaleString('en-IN')}</td></tr>)}
-              {netProfit > 0 && <tr style={{ background: '#EFF6FF', color: '#2563EB' }}><td style={{ padding: '10px 20px', fontWeight: 700 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Net Profit" />Net Profit</span></td><td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800 }}>{netProfit.toLocaleString('en-IN')}</td></tr>}
+              {grossProfit >= 0 && expenses.length === 0 && netProfit <= 0 && <EmptyTableRow colSpan={2} />}
+              {grossProfit < 0 && <tr style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Loss brought down" />Gross Loss b/d</span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{formatReportNumber(Math.abs(grossProfit))}</td></tr>}
+              {expenses.map(account => <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{formatReportNumber(account.balance || 0)}</td></tr>)}
+              {netProfit > 0 && <tr style={{ background: '#EFF6FF', color: '#2563EB' }}><td style={{ padding: '10px 20px', fontWeight: 700 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Net Profit" />Net Profit</span></td><td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800 }}>{formatReportNumber(netProfit)}</td></tr>}
             </tbody></table>
           </div>
           <div>
             <div style={{ background: '#FEF2F2', padding: '10px 20px', borderBottom: '1px solid #FECACA' }}><span style={{ fontSize: 12, fontWeight: 700, color: '#DC2626', textTransform: 'uppercase' }}>Cr - Income</span></div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
-              {grossProfit > 0 && <tr style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Profit brought down" />Gross Profit b/d</span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{grossProfit.toLocaleString('en-IN')}</td></tr>}
-              {income.map(account => <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{(account.balance || 0).toLocaleString('en-IN')}</td></tr>)}
-              {netProfit < 0 && <tr style={{ background: '#EFF6FF', color: '#2563EB' }}><td style={{ padding: '10px 20px', fontWeight: 700 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Net Loss" />Net Loss</span></td><td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800 }}>{Math.abs(netProfit).toLocaleString('en-IN')}</td></tr>}
+              {grossProfit <= 0 && income.length === 0 && netProfit >= 0 && <EmptyTableRow colSpan={2} />}
+              {grossProfit > 0 && <tr style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Profit brought down" />Gross Profit b/d</span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{formatReportNumber(grossProfit)}</td></tr>}
+              {income.map(account => <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}><td style={{ padding: '8px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td><td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace' }}>{formatReportNumber(account.balance || 0)}</td></tr>)}
+              {netProfit < 0 && <tr style={{ background: '#EFF6FF', color: '#2563EB' }}><td style={{ padding: '10px 20px', fontWeight: 700 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Net Loss" />Net Loss</span></td><td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800 }}>{formatReportNumber(Math.abs(netProfit))}</td></tr>}
             </tbody></table>
           </div>
         </div>

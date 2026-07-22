@@ -7,7 +7,8 @@ import { Scale, TrendingDown, TrendingUp } from 'lucide-react'
 import { useFinancialReport } from '../hooks/useFinancialReport'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import AccountDrilldown from '../components/AccountDrilldown'
-import { buildTraditionalTwoSidedExport } from '../lib/export'
+import { buildTraditionalTwoSidedExport, formatReportNumber } from '../lib/export'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function TradingAccount() {
   const { settings, formatMoney } = useAppSettings()
@@ -73,22 +74,23 @@ export default function TradingAccount() {
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>
+                {openingStock === 0 && directExpenses.length === 0 && grossProfit <= 0 && <EmptyTableRow colSpan={2} />}
                 {openingStock !== 0 && (
                   <tr style={{ borderBottom: '1px solid #F1F5F9' }}>
                     <td style={{ padding: '9px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Opening Stock" />Opening Stock</span></td>
-                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{openingStock.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{formatReportNumber(openingStock)}</td>
                   </tr>
                 )}
                 {directExpenses.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
                     <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
-                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{formatReportNumber(account.balance || 0)}</td>
                   </tr>
                 ))}
                 {grossProfit > 0 && (
                   <tr style={{ background: '#F0FDF4', borderTop: '2px solid #BBF7D0' }}>
                     <td style={{ padding: '10px 20px', fontWeight: 700, color: '#065F46' }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Profit carried down" />Gross Profit c/d</span></td>
-                    <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#10B981' }}>{grossProfit.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#10B981' }}>{formatReportNumber(grossProfit)}</td>
                   </tr>
                 )}
               </tbody>
@@ -100,29 +102,30 @@ export default function TradingAccount() {
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>
+                {directIncome.length === 0 && closingStock === 0 && grossProfit >= 0 && <EmptyTableRow colSpan={2} />}
                 {directIncome.map(account => (
                   <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
                     <td style={{ padding: '9px 20px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
-                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{formatReportNumber(account.balance || 0)}</td>
                   </tr>
                 ))}
                 {closingStock !== 0 && (
                   <tr style={{ borderBottom: '1px solid #F1F5F9' }}>
                     <td style={{ padding: '9px 20px', fontSize: 13, fontWeight: 600 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Closing Stock" />Closing Stock</span></td>
-                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{closingStock.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '9px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{formatReportNumber(closingStock)}</td>
                   </tr>
                 )}
                 {grossProfit < 0 && (
                   <tr style={{ background: '#FEF2F2', borderTop: '2px solid #FECACA' }}>
                     <td style={{ padding: '10px 20px', fontWeight: 700, color: '#991B1B' }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item="Gross Loss carried down" />Gross Loss c/d</span></td>
-                    <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#EF4444' }}>{Math.abs(grossProfit).toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '10px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 800, color: '#EF4444' }}>{formatReportNumber(Math.abs(grossProfit))}</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
           <div style={{ display: 'contents' }}>
-            {[0, 1].map(side => <div key={side} style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 20px', background: '#EFF6FF', color: '#2563EB', fontWeight: 800, borderRight: side === 0 ? '1px solid #E2E8F0' : undefined }}><span>Total</span><span className="mono">{grandTotal.toLocaleString('en-IN')}</span></div>)}
+            {[0, 1].map(side => <div key={side} style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 20px', background: '#EFF6FF', color: '#2563EB', fontWeight: 800, borderRight: side === 0 ? '1px solid #E2E8F0' : undefined }}><span>Total</span><span className="mono">{formatReportNumber(grandTotal)}</span></div>)}
           </div>
         </div>
         </div>

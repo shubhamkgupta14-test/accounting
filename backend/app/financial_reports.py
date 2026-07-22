@@ -18,10 +18,21 @@ from typing import Literal
 BALANCE_SHEET_TYPES = {"Asset", "Liability", "Equity"}
 DEBIT_TYPES = {"Asset", "Expense"}
 INVENTORY_TERMS = (
-    "stock", "inventory", "raw material", "raw-material", "finished goods",
+    "stock", "inventory", "inventories", "raw material", "raw-material", "finished goods",
     "work in progress", "work-in-progress", "wip", "goods in transit",
     "stores and spares", "stores & spares",
 )
+DIRECT_INCOME_GROUPS = {"Direct Income", "Revenue from Operations"}
+INDIRECT_INCOME_GROUPS = {"Indirect Income", "Other Income"}
+DIRECT_EXPENSE_GROUPS = {
+    "Direct Expenses", "Cost of Goods Sold", "Cost of Materials Consumed",
+    "Purchases of Stock-in-Trade", "Changes in Inventories",
+}
+INDIRECT_EXPENSE_GROUPS = {
+    "Indirect Expenses", "Employee Benefits Expense", "Finance Costs",
+    "Depreciation and Amortisation Expense", "Other Expenses",
+    "Current Tax Expense", "Deferred Tax Expense",
+}
 
 
 def is_inventory_account(account: dict) -> bool:
@@ -178,16 +189,16 @@ async def build_financial_report(db, period: Period, business_start_date: date |
         closing_stock = sum(closing[account["name"]] for account in stock_accounts)
         stock_source = "Stock-in-Hand ledger"
 
-    def rows(types: set[str], group: str | None = None, balances=closing):
+    def rows(types: set[str], groups: set[str] | None = None, balances=closing):
         result = []
         for account in accounts:
-            if account.get("type") not in types or (group and account.get("group") != group):
+            if account.get("type") not in types or (groups and account.get("group") not in groups):
                 continue
             amount = float(balances.get(account["name"], 0))
             has_ledger_data = account["name"] in current_active
             has_opening = abs(float(account.get("opening_balance", 0) or 0)) >= .005
             if abs(amount) >= .005 or has_ledger_data or has_opening:
-                result.append({"code": account.get("code"), "name": account["name"], "group": account.get("group"), "amount": amount})
+                result.append({"code": account.get("code"), "name": account["name"], "type": account.get("type"), "group": account.get("group"), "amount": amount})
         return result
 
     # Periodic-stock journals are presentation entries. Their Purchases/direct
@@ -205,7 +216,7 @@ async def build_financial_report(db, period: Period, business_start_date: date |
                 account = next((item for item in accounts if item["name"] == line.get("account")), None)
                 normalized_name = str(line.get("account", "")).strip().lower()
                 if not account or (
-                    account.get("group") not in {"Direct Expenses", "Direct Income"}
+                    account.get("group") not in DIRECT_EXPENSE_GROUPS | DIRECT_INCOME_GROUPS
                     and normalized_name not in {"purchase", "purchases", "sale", "sales"}
                 ):
                     continue
@@ -213,10 +224,10 @@ async def build_financial_report(db, period: Period, business_start_date: date |
                 normalized_current[account["name"]] = normalized_current.get(account["name"], 0) - adjustment
                 presentation_adjustments[account["name"]] = presentation_adjustments.get(account["name"], 0) - adjustment
 
-    direct_expenses = rows({"Expense"}, "Direct Expenses", normalized_current)
-    direct_income = rows({"Income"}, "Direct Income", normalized_current)
-    indirect_expenses = rows({"Expense"}, "Indirect Expenses", current)
-    indirect_income = rows({"Income"}, "Indirect Income", current)
+    direct_expenses = rows({"Expense"}, DIRECT_EXPENSE_GROUPS, normalized_current)
+    direct_income = rows({"Income"}, DIRECT_INCOME_GROUPS, normalized_current)
+    indirect_expenses = rows({"Expense"}, INDIRECT_EXPENSE_GROUPS, current)
+    indirect_income = rows({"Income"}, INDIRECT_INCOME_GROUPS, current)
     purchases_and_direct = sum(row["amount"] for row in direct_expenses)
     sales_and_direct = sum(row["amount"] for row in direct_income)
     gross_profit = sales_and_direct + closing_stock - opening_stock - purchases_and_direct
@@ -225,7 +236,7 @@ async def build_financial_report(db, period: Period, business_start_date: date |
     # Inventory is computed, so exclude any ledger-based stock account to avoid double counting.
     assets = [r for r in rows({"Asset"}) if r["name"].strip().lower() not in stock_ledger_names]
     if abs(closing_stock) >= .005 or has_inventory or any(account["name"] in current_active for account in stock_accounts):
-        assets.append({"code": "STOCK-IN-HAND", "name": "Stock-in-Hand", "group": "Current Assets", "amount": closing_stock, "calculated": True, "source": stock_source})
+        assets.append({"code": "STOCK-IN-HAND", "name": "Stock-in-Hand", "type": "Asset", "group": "Inventories", "amount": closing_stock, "calculated": True, "source": stock_source})
     # Profit/loss is transferred to Capital by a posted closing journal.  The
     # transfer account is a journal clearing account, not a Balance Sheet item.
     claims = [

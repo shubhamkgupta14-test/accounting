@@ -6,6 +6,9 @@ import PageIntro from '../components/PageIntro'
 import { useAppSettings } from '../context/SettingsContext'
 import { api, type JournalEntry, type ReportPeriod } from '../lib/api'
 import { DayBookSkeleton } from '../components/Loading'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 
 export default function DayBook() {
@@ -17,7 +20,7 @@ export default function DayBook() {
   const [financialYears, setFinancialYears] = useState<ReportPeriod[]>([])
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const [entries, setEntries] = useState<JournalEntry[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -131,16 +134,16 @@ export default function DayBook() {
                       <td><span className="mono" style={{ fontSize: 12.5, color: '#2563EB', fontWeight: 500 }}>{e.voucherNo}</span></td>
                       <td><span className="narration-text">{e.narration}</span></td>
                       <td style={{ fontSize: 12.5, color: '#64748B' }}>{e.entries.length} lines</td>
-                      <td className="num dr-amount" style={{ fontWeight: 500 }}>{e.totalDr.toLocaleString('en-IN')}</td>
-                      <td className="num cr-amount" style={{ fontWeight: 500 }}>{e.totalCr.toLocaleString('en-IN')}</td>
+                      <td className="num dr-amount" style={{ fontWeight: 500 }}>{formatReportNumber(e.totalDr)}</td>
+                      <td className="num cr-amount" style={{ fontWeight: 500 }}>{formatReportNumber(e.totalCr)}</td>
                     </tr>
                     {/* Sub-lines */}
                     {e.entries.map((row, i) => (
                       <tr key={`${e.id}-row-${i}`} style={{ background: '#FAFBFC' }}>
                         <td style={{ paddingLeft: 32, color: '#94A3B8', fontSize: 12 }}>↳</td>
                         <td style={{ paddingLeft: 32, fontSize: 12.5, color: '#475569', fontStyle: 'italic' }}>{row.account}</td>
-                        <td className="num" style={{ fontSize: 12.5, color: row.dr ? '#059669' : '#CBD5E1' }}>{row.dr ? row.dr.toLocaleString('en-IN') : '—'}</td>
-                        <td className="num" style={{ fontSize: 12.5, color: row.cr ? '#DC2626' : '#CBD5E1' }}>{row.cr ? row.cr.toLocaleString('en-IN') : '—'}</td>
+                        <td className="num" style={{ fontSize: 12.5, color: row.dr ? '#059669' : '#CBD5E1' }}>{row.dr ? formatReportNumber(row.dr) : '—'}</td>
+                        <td className="num" style={{ fontSize: 12.5, color: row.cr ? '#DC2626' : '#CBD5E1' }}>{row.cr ? formatReportNumber(row.cr) : '—'}</td>
                         <td />
                       </tr>
                     ))}
@@ -153,9 +156,21 @@ export default function DayBook() {
       ))}
 
       {total === 0 && (
-        <div className="empty-state card">
-          <Calendar size={32} />
-          <p>No entries found for the selected date range</p>
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Voucher No.</th>
+                <th>Narration</th>
+                <th>Accounts</th>
+                <th className="num dr-heading">Debit ({currencySymbol})</th>
+                <th className="num cr-heading">Credit ({currencySymbol})</th>
+              </tr>
+            </thead>
+            <tbody>
+              <EmptyTableRow colSpan={5} />
+            </tbody>
+          </table>
         </div>
       )}
       {total > 0 && <div className="card"><TablePagination total={total} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1) }} /></div>}

@@ -178,7 +178,7 @@ async def update_partners(payload: PartnerSettings, _: dict = Depends(require_ro
             {"name": partner["account_name"]},
             {"$set": {
                 "code": partner["account_code"], "name": partner["account_name"],
-                "type": "Equity", "group": "Capital", "opening_balance": partner["opening_balance"],
+                "type": "Equity", "group": "Partner Capital", "opening_balance": partner["opening_balance"],
                 "is_active": True, "partner_capital": True,
             }},
             upsert=True,
@@ -189,7 +189,7 @@ async def update_partners(payload: PartnerSettings, _: dict = Depends(require_ro
                 "code": drawings_code,
                 "name": drawings_name,
                 "type": "Equity",
-                "group": "Capital",
+                "group": "Drawings",
                 "opening_balance": 0.0,
                 "is_active": True,
                 "partner_drawings": True,
@@ -402,7 +402,7 @@ async def retirement_confirm(payload: RetirementSettlementRequest, current_user:
             {"name": "Profit & Loss Account"},
             {"$setOnInsert": {
                 "code": "SYS-PNL", "name": "Profit & Loss Account", "type": "Equity",
-                "group": "Capital", "opening_balance": 0.0, "is_active": True,
+                "group": "Current Year Profit and Loss", "opening_balance": 0.0, "is_active": True,
             }},
             upsert=True,
         )
@@ -424,7 +424,7 @@ async def retirement_confirm(payload: RetirementSettlementRequest, current_user:
         {
             "$set": {
                 "code": loan_code, "name": loan_name, "type": "Liability",
-                "group": "Current Liabilities", "is_active": True,
+                "group": "Partner Loans", "is_active": True,
                 "partner_loan": True, "partner_name": payload.partner_name.strip(),
                 "partner_capital_account": payload.account_name,
             },
@@ -465,7 +465,7 @@ async def retirement_confirm(payload: RetirementSettlementRequest, current_user:
     return {
         "created": len(entries),
         "entries": entries,
-        "loan_account": {"name": loan_name, "code": loan_code, "type": "Liability", "group": "Current Liabilities"},
+        "loan_account": {"name": loan_name, "code": loan_code, "type": "Liability", "group": "Partner Loans"},
     }
 
 
