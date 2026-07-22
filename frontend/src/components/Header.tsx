@@ -1,8 +1,9 @@
-import { Bell, HelpCircle, Menu } from 'lucide-react'
+import { Bell, Bot, HelpCircle, Menu } from 'lucide-react'
 import type { PageId } from '../App'
 import { useAuth } from '../context/AuthContext'
 import { useAppSettings } from '../context/SettingsContext'
 import { usePageContent } from '../context/ContentContext'
+import { useAI } from '../context/AIContext'
 
 interface Props { activePage: PageId; onNavigate: (page: PageId) => void; onOpenMenu: () => void }
 
@@ -10,6 +11,7 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
   const pageContent = usePageContent(activePage)
   const { user } = useAuth()
   const { settings } = useAppSettings()
+  const { configured: aiConfigured, openChat } = useAI()
   const initials = `${user?.first_name?.[0] || 'F'}${user?.last_name?.[0] || 'L'}`.toUpperCase()
   const name = user ? `${user.first_name} ${user.last_name}` : 'First Last'
   const role = user?.role === 'superadmin' ? 'Superadmin' : user?.role === 'admin' ? 'Admin' : 'View only'
@@ -31,6 +33,16 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
 
       {/* Right actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <button
+          className={`btn btn-ghost btn-icon ai-header-button${aiConfigured ? ' configured' : ''}`}
+          style={{ position: 'relative' }}
+          title={aiConfigured ? 'Open Accounting AI' : 'Open Accounting AI setup guide'}
+          aria-label="Open Accounting AI"
+          onClick={openChat}
+        >
+          <Bot size={17} />
+          <span className={`ai-status-dot${aiConfigured ? ' connected' : ''}`} />
+        </button>
         <button className="btn btn-ghost btn-icon" style={{ position: 'relative' }} title="Notifications" onClick={() => onNavigate('notifications')}>
           <Bell size={16} />
           <span style={{

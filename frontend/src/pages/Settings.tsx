@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Save, Building2, User, Lock, Bell, Database, Globe, Pencil, Check, X, Plus } from 'lucide-react'
-import { api, type ClosingPreviewEntry, type CompanySettings, type FiscalSettings, type NotificationSettings, type PartnerCapitalSettings, type RetirementSettlementRequest } from '../lib/api'
+import { Save, Building2, User, Lock, Bell, Bot, Database, Globe, Pencil, Check, X, Plus } from 'lucide-react'
+import { api, type AIProvider, type ClosingPreviewEntry, type CompanySettings, type FiscalSettings, type NotificationSettings, type PartnerCapitalSettings, type RetirementSettlementRequest } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import { useAuth } from '../context/AuthContext'
@@ -10,13 +10,15 @@ import PasswordInput from '../components/PasswordInput'
 import { SettingsSkeleton } from '../components/Loading'
 import { useLedgerData } from '../context/DataContext'
 import EmptyTableRow from '../components/EmptyTableRow'
+import { AI_PROVIDER_OPTIONS, useAI } from '../context/AIContext'
 
-type Tab = 'company' | 'profile' | 'security' | 'notifications' | 'data' | 'fiscal' | 'partners'
+type Tab = 'company' | 'profile' | 'security' | 'ai' | 'notifications' | 'data' | 'fiscal' | 'partners'
 
 const tabs: { id: Tab; label: string; icon: React.ReactNode; roles: Array<'superadmin' | 'admin' | 'user'> }[] = [
   { id: 'company', label: 'Company', icon: <Building2 size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'profile', label: 'Profile', icon: <User size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'security', label: 'Security', icon: <Lock size={14} />, roles: ['superadmin', 'admin', 'user'] },
+  { id: 'ai', label: 'Accounting AI', icon: <Bot size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'data', label: 'Data & Backup', icon: <Database size={14} />, roles: ['superadmin'] },
   { id: 'fiscal', label: 'Fiscal Year', icon: <Globe size={14} />, roles: ['superadmin', 'admin', 'user'] },
@@ -33,11 +35,17 @@ const newPartner = (index: number, sharePercentage = index === 0 ? 100 : 0): Par
 })
 
 export default function Settings({ partnersOnly = false }: { partnersOnly?: boolean }) {
-  const [activeTab, setActiveTab] = useState<Tab>(partnersOnly ? 'partners' : 'profile')
+  const requestedTab = new URLSearchParams(window.location.search).get('settingsTab')
+  const [activeTab, setActiveTab] = useState<Tab>(partnersOnly ? 'partners' : requestedTab === 'ai' ? 'ai' : 'profile')
   const { showToast } = useToast()
   const { user, updateProfile } = useAuth()
   const { settings, loading: settingsLoading, reload, formatMoney } = useAppSettings()
   const { accounts, refresh } = useLedgerData()
+  const { configured: aiConfigured, checking: aiChecking, activeProvider, configurations: aiConfigurations, connect: connectAI, activate: activateAI, disconnect: disconnectAI } = useAI()
+  const [aiProvider, setAIProvider] = useState<AIProvider>('grok')
+  const [aiModel, setAIModel] = useState(AI_PROVIDER_OPTIONS[0].models[0].id)
+  const [aiApiKey, setAIApiKey] = useState('')
+  const [aiSaving, setAISaving] = useState(false)
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
   const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '', audit_mode: false })
   const [company, setCompany] = useState<CompanySettings>(settings.company)
@@ -230,7 +238,13 @@ export default function Settings({ partnersOnly = false }: { partnersOnly?: bool
         {/* Sidebar tabs */}
         {!partnersOnly && <div className="card settings-tabs" style={{ height: 'fit-content', padding: '8px' }}>
           {visibleTabs.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
+            <button key={t.id} onClick={() => {
+              setActiveTab(t.id)
+              const url = new URL(window.location.href)
+              if (t.id === 'ai') url.searchParams.set('settingsTab', 'ai')
+              else url.searchParams.delete('settingsTab')
+              window.history.replaceState({}, '', url)
+            }}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                 padding: '9px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
@@ -369,6 +383,113 @@ export default function Settings({ partnersOnly = false }: { partnersOnly?: bool
               {canManageGlobalSettings && <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
                 <button className="btn btn-primary" onClick={saveFiscal}><Save size={14} /> Save Changes</button>
               </div>}
+            </div>
+          )}
+
+          {activeTab === 'ai' && (
+            <div className="card" style={{ padding: '24px 28px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
+                <div>
+                  <h2 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700 }}>Accounting AI</h2>
+                  <p style={{ margin: 0, color: '#64748B', fontSize: 13 }}>
+                    Connect one or more AI providers for this login session. The assistant cannot read or update application data.
+                  </p>
+                </div>
+                <span className={`badge ${aiConfigured ? 'badge-green' : 'badge-slate'}`}>
+                  {aiChecking ? 'Checking...' : aiConfigured ? `${aiConfigurations.length} connected` : 'Not connected'}
+                </span>
+              </div>
+
+              {aiConfigurations.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.05em' }}>Connected providers</div>
+                  {aiConfigurations.map(configuration => {
+                    const option = AI_PROVIDER_OPTIONS.find(item => item.id === configuration.provider)
+                    const isActive = configuration.provider === activeProvider
+                    return (
+                      <div key={configuration.provider} style={{ padding: '13px 14px', border: `1px solid ${isActive ? '#93C5FD' : '#E2E8F0'}`, borderRadius: 8, background: isActive ? '#EFF6FF' : '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <strong style={{ color: '#0F172A', fontSize: 13.5 }}>{option?.label || configuration.provider}</strong>
+                            {isActive && <span className="badge badge-green">Active</span>}
+                          </div>
+                          <div style={{ color: '#64748B', fontSize: 12, marginTop: 4 }}>
+                            {configuration.model} · expires {new Date(configuration.expires_at).toLocaleString()}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 7 }}>
+                          {!isActive && <button className="btn btn-secondary" disabled={aiSaving} onClick={async () => {
+                            setAISaving(true)
+                            try { await activateAI(configuration.provider); showToast('success', `${option?.label || configuration.provider} is now active.`) }
+                            catch (err) { showToast('error', err instanceof Error ? err.message : 'Unable to change AI provider.') }
+                            finally { setAISaving(false) }
+                          }}>Use</button>}
+                          <button className="btn btn-secondary" disabled={aiSaving} onClick={async () => {
+                            setAISaving(true)
+                            try { await disconnectAI(configuration.provider); showToast('success', `${option?.label || configuration.provider} key removed from this session.`) }
+                            catch (err) { showToast('error', err instanceof Error ? err.message : 'Unable to remove AI provider.') }
+                            finally { setAISaving(false) }
+                          }}>Remove</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <div style={{ paddingTop: aiConfigurations.length ? 18 : 0, borderTop: aiConfigurations.length ? '1px solid #E2E8F0' : 'none', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: '#0F172A' }}>{aiConfigurations.some(item => item.provider === aiProvider) ? 'Replace provider key or model' : 'Add an AI provider'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 12 }}>
+                    <div>
+                      <label className="form-label" htmlFor="ai-provider">Provider</label>
+                      <select id="ai-provider" className="select" style={{ width: '100%' }} value={aiProvider} onChange={event => {
+                        const provider = event.target.value as AIProvider
+                        const option = AI_PROVIDER_OPTIONS.find(item => item.id === provider)!
+                        setAIProvider(provider)
+                        setAIModel(option.models[0].id)
+                        setAIApiKey('')
+                      }}>
+                        {AI_PROVIDER_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label" htmlFor="ai-model">Model</label>
+                      <select id="ai-model" className="select" style={{ width: '100%' }} value={aiModel} onChange={event => setAIModel(event.target.value)}>
+                        {AI_PROVIDER_OPTIONS.find(item => item.id === aiProvider)?.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="form-label" htmlFor="ai-api-key">API Key</label>
+                    <input
+                      id="ai-api-key"
+                      className="input"
+                      type="password"
+                      value={aiApiKey}
+                      maxLength={512}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={aiProvider === 'grok' ? 'xai-...' : aiProvider === 'groq' ? 'gsk_...' : 'Google AI API key'}
+                      onChange={event => setAIApiKey(event.target.value)}
+                    />
+                  </div>
+                  <div style={{ padding: '12px 14px', border: '1px solid #BFDBFE', borderRadius: 8, background: '#EFF6FF', color: '#1E40AF', fontSize: 12.5, lineHeight: 1.55 }}>
+                    Keys are sent once to this backend over HTTPS and retained only in process memory. They are not saved in MongoDB, browser storage, source code, or application settings. The newly connected provider becomes active automatically.
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-primary" disabled={aiSaving || aiApiKey.trim().length < 10} onClick={async () => {
+                      setAISaving(true)
+                      try {
+                        await connectAI(aiProvider, aiModel, aiApiKey.trim())
+                        setAIApiKey('')
+                        const label = AI_PROVIDER_OPTIONS.find(item => item.id === aiProvider)?.label || aiProvider
+                        showToast('success', `${label} connected and selected for this session.`)
+                      } catch (err) {
+                        showToast('error', err instanceof Error ? err.message : 'Unable to connect the AI provider.')
+                      } finally { setAISaving(false) }
+                    }}><Bot size={14} /> {aiSaving ? 'Connecting...' : aiConfigurations.some(item => item.provider === aiProvider) ? 'Replace & Activate' : 'Connect & Activate'}</button>
+                  </div>
+                </div>
             </div>
           )}
 

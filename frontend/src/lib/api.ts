@@ -208,6 +208,32 @@ export interface DatabaseExport {
   data: Record<string, Record<string, unknown>[]>;
 }
 
+export type AIProvider = "grok" | "groq" | "gemini";
+export interface AIProviderConfiguration {
+  provider: AIProvider;
+  model: string;
+  expires_at: string;
+}
+export interface AIKeyStatus {
+  configured: boolean;
+  active_provider: AIProvider | null;
+  active_model: string | null;
+  configurations: AIProviderConfiguration[];
+}
+
+export interface AIChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AIChatResponse {
+  in_scope: boolean;
+  answer: string;
+  suggestions: string[];
+  provider: AIProvider;
+  model: string;
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -466,4 +492,19 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   exportDatabase: () => request<DatabaseExport>("/settings/export"),
+  aiKeyStatus: () => request<AIKeyStatus>("/ai/session-key/status"),
+  connectAIKey: (provider: AIProvider, model: string, apiKey: string) => request<AIKeyStatus>("/ai/session-key", {
+    method: "POST",
+    body: JSON.stringify({ provider, model, api_key: apiKey }),
+  }),
+  activateAIProvider: (provider: AIProvider) => request<AIKeyStatus>("/ai/session-key/active", {
+    method: "PATCH",
+    body: JSON.stringify({ provider }),
+  }),
+  disconnectAIProvider: (provider: AIProvider) => request<AIKeyStatus>(`/ai/session-key/${provider}`, { method: "DELETE" }),
+  disconnectAllAIKeys: () => request<void>("/ai/session-key", { method: "DELETE" }),
+  aiChat: (message: string, history: AIChatHistoryMessage[]) => request<AIChatResponse>("/ai/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, history }),
+  }),
 };

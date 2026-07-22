@@ -10,6 +10,7 @@ from pydantic import BaseModel, EmailStr, Field
 from app.core.config import settings
 from app.core.database import get_database
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core.multi_ai_sessions import remove_request_session_key
 from app.dependencies import get_current_user, require_roles
 from app.email import send_html_email
 from app.email_templates import otp_email_html
@@ -177,7 +178,8 @@ async def oauth2_token(request: Request, form: OAuth2PasswordRequestForm = Depen
 
 
 @router.post("/logout", status_code=204)
-async def logout(response: Response, current_user=Depends(get_current_user)):
+async def logout(request: Request, response: Response, current_user=Depends(get_current_user)):
+    remove_request_session_key(request)
     await get_database().users.update_one(
         {"_id": object_id(current_user["id"], "User")},
         {"$inc": {"token_version": 1}, "$set": {

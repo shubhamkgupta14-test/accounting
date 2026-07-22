@@ -12,6 +12,8 @@ import PageFooter from './components/PageFooter'
 import { PageSkeletonFor, Spinner } from './components/Loading'
 import LedgerQuickView from './components/LedgerQuickView'
 import AppErrorBoundary from './components/AppErrorBoundary'
+import AIChatDrawer from './components/AIChatDrawer'
+import { AIProvider } from './context/AIContext'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const JournalEntries = lazy(() => import('./pages/JournalEntries'))
@@ -115,6 +117,12 @@ function AppShell() {
   }
   return (
     <DataProvider activePage={activePage}>
+      <AIChatDrawer onOpenSettings={() => {
+        const url = new URL(window.location.href)
+        url.searchParams.set('settingsTab', 'ai')
+        window.history.replaceState({}, '', url)
+        navigate('settings')
+      }} />
       <LedgerQuickView />
       <Sidebar activePage={activePage} onNavigate={navigate} mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
       <Header activePage={activePage} onNavigate={navigate} onOpenMenu={() => setMobileMenuOpen(true)} />
@@ -130,9 +138,9 @@ export default function App() {
   return (
     <AppErrorBoundary>
       <AuthProvider>
-        <ContentProvider><ToastProvider>
+        <AIProvider><ContentProvider><ToastProvider>
           <SettingsProvider><AppShell /></SettingsProvider>
-        </ToastProvider></ContentProvider>
+        </ToastProvider></ContentProvider></AIProvider>
       </AuthProvider>
     </AppErrorBoundary>
   )

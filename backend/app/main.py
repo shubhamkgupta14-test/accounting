@@ -12,7 +12,8 @@ from starlette.requests import Request
 from app.core.config import settings
 from app.core.security import ALGORITHM
 from app.core.database import close_mongo_connection, connect_to_mongo, ensure_indexes, get_database
-from app.routes import accounts, admin, auth, content, journals, notifications, reports, settings as settings_routes, transactions, vouchers
+from app.routes import accounts, admin, auth, content, journals, multi_ai as ai, notifications, reports, settings as settings_routes, transactions, vouchers
+from app.core.multi_ai_sessions import ai_session_keys
 # from scripts.seed import main
 from datetime import datetime, UTC
 from fastapi.responses import JSONResponse
@@ -114,6 +115,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        ai_session_keys.clear()
         await close_mongo_connection()
 
 
@@ -164,7 +166,9 @@ async def security_headers(request: Request, call_next):
             except jwt.InvalidTokenError:
                 identity = f"token:{hashlib.sha256(token.encode('utf-8')).hexdigest()}"
         client = request.client.host if request.client else "unknown"
-        if request.url.path.startswith("/api/reports"):
+        if request.url.path.startswith("/api/ai"):
+            rate_scope, rate_limit = "ai", settings.ai_requests_per_minute
+        elif request.url.path.startswith("/api/reports"):
             rate_scope, rate_limit = "reports", settings.report_requests_per_minute
         elif "/import-excel" in request.url.path:
             rate_scope, rate_limit = "imports", settings.import_requests_per_minute
@@ -238,6 +242,7 @@ async def health_check():
 
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
 app.include_router(accounts.router, prefix="/api")
 app.include_router(journals.router, prefix="/api")
 app.include_router(vouchers.router, prefix="/api")
