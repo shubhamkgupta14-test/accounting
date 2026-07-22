@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { DataProvider, useLedgerData } from './context/DataContext'
 import { ToastProvider } from './context/ToastContext'
@@ -53,8 +53,12 @@ const superadminPages = new Set<PageId>(['user-management', 'clean-db'])
 
 function DataLoadingGate({ page, children }: { page: PageId; children: React.ReactNode }) {
   const { loading } = useLedgerData()
+  const loadedPage = useRef<PageId | null>(null)
   const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'partners', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
-  if (loading && waitsForSharedData) return <PageSkeletonFor page={page} />
+  if (!loading) loadedPage.current = page
+  // Only replace the page during its initial load. Keeping an already-rendered
+  // page mounted preserves pagination and form state during CRUD refreshes.
+  if (loading && waitsForSharedData && loadedPage.current !== page) return <PageSkeletonFor page={page} />
   return children
 }
 

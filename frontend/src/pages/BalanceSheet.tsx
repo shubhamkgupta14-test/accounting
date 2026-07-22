@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { CheckCircle, Landmark, Scale, WalletCards } from 'lucide-react'
 import { appName } from '../config/app'
 import ExportMenu from '../components/ExportMenu'
@@ -7,35 +8,26 @@ import { useAppSettings } from '../context/SettingsContext'
 import { useFinancialReport } from '../hooks/useFinancialReport'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import AccountDrilldown from '../components/AccountDrilldown'
-import { buildTraditionalTwoSidedExport } from '../lib/export'
-import { balanceSheetAssetGroup, balanceSheetLiabilityGroup } from '../lib/accountGroups'
+import { buildBalanceSheetExport, formatReportNumber } from '../lib/export'
+import { balanceSheetGroup, buildBalanceSheetSections } from '../lib/accountGroups'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function BalanceSheet() {
-  const { settings, formatMoney } = useAppSettings()
+  const { settings } = useAppSettings()
   const { report, period, setPeriod, loading, error } = useFinancialReport(settings.fiscal)
   if (!report) return <div><PageIntro id="balance-sheet" /><ReportPeriodFilter period={period} onChange={setPeriod} loading={loading} error={error} /></div>
   const { assets, liabilitiesAndCapital } = report
-  const totalAssets = assets.reduce((sum, account) => sum + (account.balance || 0), 0)
-  const totalLiab = liabilitiesAndCapital.reduce((sum, account) => sum + (account.balance || 0), 0)
+  const assetSections = buildBalanceSheetSections(assets, 'assets')
+  const claimSections = buildBalanceSheetSections(liabilitiesAndCapital, 'claims')
+  const totalAssets = assetSections.reduce((sum, section) => sum + section.total, 0)
+  const totalLiab = claimSections.reduce((sum, section) => sum + section.total, 0)
   const balanced = Math.abs(totalAssets - totalLiab) < 0.005
-
-  const grouped = (rows: typeof assets, classify: (account: typeof assets[number]) => string) => rows.reduce<Record<string, typeof assets>>((acc, account) => {
-    const group = classify(account)
-    acc[group] ||= []
-    acc[group].push(account)
-    return acc
-  }, {})
-  const orderedGroups = (rows: typeof assets, classify: (account: typeof assets[number]) => string, order: string[]) => {
-    const result = grouped(rows, classify)
-    return Object.entries(result).sort(([a], [b]) => (order.indexOf(a) < 0 ? 99 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 99 : order.indexOf(b)))
-  }
-  const assetGroups = orderedGroups(assets, balanceSheetAssetGroup, ['Fixed Assets', 'Non-current Assets', 'Deffered Tax Assets', 'Current Assets', 'Cash', 'Bank'])
-  const liabilityGroups = orderedGroups(liabilitiesAndCapital, balanceSheetLiabilityGroup, ['Capital', 'Long-term Liabilities', 'Deffered Tax Liabilities', 'Short-term Liabilities', 'Other Liabilities'])
-  const balanceSheetExport = buildTraditionalTwoSidedExport(
-    'Liabilities & Capital', 'Assets',
-    liabilitiesAndCapital.map(account => ({ particulars: account.name, amount: account.balance || 0 })),
-    assets.map(account => ({ particulars: account.name, amount: account.balance || 0 })),
-    Math.max(totalLiab, totalAssets),
+  const balanceSheetExport = buildBalanceSheetExport(
+    'Capital and Liabilities', 'Assets',
+    claimSections,
+    assetSections,
+    totalLiab,
+    totalAssets,
   )
 
   return (
@@ -50,8 +42,8 @@ export default function BalanceSheet() {
           )}
           <AuditUncheckAllButton />
           <ExportMenu fullReport title="Balance Sheet" period={period} excelRows={balanceSheetExport.rows} pdfHtml={balanceSheetExport.html} rows={[
-            ...assets.map(account => ({ side: 'Assets', group: account.group, account: account.name, amount: account.balance || 0 })),
-            ...liabilitiesAndCapital.map(account => ({ side: 'Liabilities & Capital', group: account.group, account: account.name, amount: account.balance || 0 })),
+            ...assets.map(account => ({ side: 'Assets', section: buildBalanceSheetSections([account], 'assets')[0]?.name, group: balanceSheetGroup(account), account: account.name, amount: account.balance || 0 })),
+            ...liabilitiesAndCapital.map(account => ({ side: 'Capital and Liabilities', section: buildBalanceSheetSections([account], 'claims')[0]?.name, group: balanceSheetGroup(account), account: account.name, amount: account.balance || 0 })),
           ]} />
         </div>
       </div>
@@ -61,21 +53,21 @@ export default function BalanceSheet() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
         <div className="card stat-card">
           <div className="label" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><WalletCards size={13} /> Total Assets</div>
-          <div className="value" style={{ fontSize: 22, color: '#2563EB' }}>{formatMoney(totalAssets)}</div>
+          <div className="value" style={{ fontSize: 22, color: '#2563EB', fontWeight: 600 }}>{formatReportNumber(totalAssets)}</div>
         </div>
         <div className="card stat-card">
           <div className="label" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><Landmark size={13} /> Total Liabilities + Capital</div>
-          <div className="value" style={{ fontSize: 22, color: '#7C3AED' }}>{formatMoney(totalLiab)}</div>
+          <div className="value" style={{ fontSize: 22, color: '#7C3AED', fontWeight: 600 }}>{formatReportNumber(totalLiab)}</div>
         </div>
         <div className="card stat-card">
           <div className="label" style={{ display: 'flex', gap: 5, alignItems: 'center' }}><Scale size={13} /> Difference</div>
-          <div className="value" style={{ fontSize: 22, color: balanced ? '#10B981' : '#EF4444' }}>{formatMoney(Math.abs(totalAssets - totalLiab))}</div>
+          <div className="value" style={{ fontSize: 22, color: balanced ? '#10B981' : '#EF4444', fontWeight: 600 }}>{formatReportNumber(Math.abs(totalAssets - totalLiab))}</div>
         </div>
       </div>
 
       <div className="card">
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #E2E8F0', fontWeight: 600, fontSize: 14, display: 'flex', justifyContent: 'space-between' }}>
-          <span>Balance Sheet</span>
+          <span>Balance Sheet · Proprietorship / Partnership</span>
           <span style={{ fontSize: 12.5, color: '#64748B', fontWeight: 400 }}>{appName}</span>
         </div>
         <div style={{ overflowX: 'auto', maxWidth: '100%' }}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', minWidth: 760 }}>
@@ -83,18 +75,23 @@ export default function BalanceSheet() {
             <div style={{ background: '#EFF6FF', padding: '10px 20px', borderBottom: '1px solid #DBEAFE' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assets</span>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup><col /><col style={{ width: 150 }} /></colgroup>
               <tbody>
-                {assetGroups.map(([group, rows]) => (
-                  <>
-                    <tr key={group} style={{ background: '#F8FAFC' }}><td colSpan={2} style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>{group}</td></tr>
-                    {rows.map(account => (
+                {assetSections.length === 0 && <EmptyTableRow colSpan={2} />}
+                {assetSections.map(section => (
+                  <Fragment key={section.name}>
+                    <tr style={{ background: '#DBEAFE' }}><td style={{ padding: '9px 20px', fontSize: 12, fontWeight: 650, color: '#1E3A8A', textTransform: 'uppercase' }}>{section.name}</td><td className="num" style={{ padding: '9px 20px', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace', color: '#1E3A8A' }}>{formatReportNumber(section.total)}</td></tr>
+                    {section.groups.map(group => <Fragment key={group.name}>
+                      <tr style={{ background: '#F8FAFC' }}><td style={{ padding: '8px 20px 8px 28px', fontSize: 12.5, fontWeight: 600, color: '#475569' }}>{group.name}</td><td className="num" style={{ padding: '8px 20px', fontWeight: 500, fontFamily: 'JetBrains Mono, monospace', color: '#475569' }}>{formatReportNumber(group.total)}</td></tr>
+                      {group.accounts.map(account => (
                       <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                        <td style={{ padding: '8px 20px 8px 32px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
-                        <td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 20px 7px 40px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
+                        <td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 400, fontSize: 13 }}>{formatReportNumber(account.balance || 0)}</td>
                       </tr>
-                    ))}
-                  </>
+                      ))}
+                    </Fragment>)}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -102,26 +99,31 @@ export default function BalanceSheet() {
 
           <div style={{ order: 1, borderRight: '1px solid #E2E8F0' }}>
             <div style={{ background: '#F0FDF4', padding: '10px 20px', borderBottom: '1px solid #BBF7D0' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liabilities & Capital</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capital and Liabilities</span>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup><col /><col style={{ width: 150 }} /></colgroup>
               <tbody>
-                {liabilityGroups.map(([group, rows]) => (
-                  <>
-                    <tr key={group} style={{ background: '#F8FAFC' }}><td colSpan={2} style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>{group}</td></tr>
-                    {rows.map(account => (
+                {claimSections.length === 0 && <EmptyTableRow colSpan={2} />}
+                {claimSections.map(section => (
+                  <Fragment key={section.name}>
+                    <tr style={{ background: '#DCFCE7' }}><td style={{ padding: '9px 20px', fontSize: 12, fontWeight: 650, color: '#14532D', textTransform: 'uppercase' }}>{section.name}</td><td className="num" style={{ padding: '9px 20px', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace', color: '#14532D' }}>{formatReportNumber(section.total)}</td></tr>
+                    {section.groups.map(group => <Fragment key={group.name}>
+                      <tr style={{ background: '#F8FAFC' }}><td style={{ padding: '8px 20px 8px 28px', fontSize: 12.5, fontWeight: 600, color: '#475569' }}>{group.name}</td><td className="num" style={{ padding: '8px 20px', fontWeight: 500, fontFamily: 'JetBrains Mono, monospace', color: '#475569' }}>{formatReportNumber(group.total)}</td></tr>
+                      {group.accounts.map(account => (
                       <tr key={account.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                        <td style={{ padding: '8px 20px 8px 32px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
-                        <td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>{(account.balance || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '7px 20px 7px 40px', fontSize: 13 }}><span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><AuditCheckbox item={account.name} /><AccountDrilldown account={account.name} /></span></td>
+                        <td style={{ padding: '8px 20px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 400, fontSize: 13 }}>{formatReportNumber(account.balance || 0)}</td>
                       </tr>
-                    ))}
-                  </>
+                      ))}
+                    </Fragment>)}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
-          <div style={{ order: 4, display: 'flex', justifyContent: 'space-between', padding: '12px 20px', fontWeight: 800, color: 'white', background: '#1D4ED8' }}><span>TOTAL ASSETS</span><span className="mono">{totalAssets.toLocaleString('en-IN')}</span></div>
-          <div style={{ order: 3, display: 'flex', justifyContent: 'space-between', padding: '12px 20px', fontWeight: 800, color: 'white', background: '#1D4ED8', borderRight: '1px solid #93C5FD' }}><span>TOTAL LIABILITIES & CAPITAL</span><span className="mono">{totalLiab.toLocaleString('en-IN')}</span></div>
+          <div style={{ order: 4, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', padding: '12px 0 12px 20px', fontWeight: 600, color: 'white', background: '#1D4ED8' }}><span>TOTAL ASSETS</span><span style={{ paddingRight: 20, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{formatReportNumber(totalAssets)}</span></div>
+          <div style={{ order: 3, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', padding: '12px 0 12px 20px', fontWeight: 600, color: 'white', background: '#1D4ED8', borderRight: '1px solid #93C5FD' }}><span>TOTAL CAPITAL AND LIABILITIES</span><span style={{ paddingRight: 20, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{formatReportNumber(totalLiab)}</span></div>
         </div>
         </div>
       </div>

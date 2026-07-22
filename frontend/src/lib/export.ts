@@ -1,12 +1,21 @@
 export function exportRowsAsExcel(filename: string, rows: Record<string, unknown>[], heading?: string) {
+  downloadBlob(`${filename}.xls`, buildExcelDocument(rows, heading), 'application/vnd.ms-excel;charset=utf-8')
+}
+
+export function buildExcelDocument(rows: Record<string, unknown>[], heading?: string) {
   const headers = Object.keys(rows[0] || { message: 'No data' })
   const body = rows.length ? rows : [{ message: 'No data' }]
-  const csv = [
-    ...(heading ? [csvCell(heading), ''] : []),
-    headers.join(','),
-    ...body.map(row => headers.map(header => csvCell(row[header])).join(',')),
-  ].join('\n')
-  downloadBlob(`${filename}.csv`, csv, 'text/csv;charset=utf-8')
+  const cellClass = (header: string) => {
+    const value = header.toLowerCase()
+    if (value.includes('balance') || value.includes('amount') || value.includes('total') || value.includes('net')) return 'balance'
+    if (value.includes('debit') || value === 'dr' || value.includes('receipt') || value.includes('inflow') || value.includes('income')) return 'debit'
+    if (value.includes('credit') || value === 'cr' || value.includes('payment') || value.includes('outflow') || value.includes('expense')) return 'credit'
+    return ''
+  }
+  const value = (item: unknown) => typeof item === 'number' ? formatReportNumber(item) : String(item ?? '')
+  return `<html><head><meta charset="utf-8"><style>
+    table{border-collapse:collapse;font-family:Arial,sans-serif;font-size:11pt}th,td{border:1px solid #cbd5e1;padding:7px 9px}th{background:#e2e8f0;font-weight:700}.debit{background:#dcfce7;color:#047857}.credit{background:#fee2e2;color:#b91c1c}.balance{background:#dbeafe;color:#1d4ed8}.num{text-align:right;mso-number-format:"0.00"}
+  </style></head><body>${heading ? `<h2>${escapeExportHtml(heading)}</h2>` : ''}<table><thead><tr>${headers.map(header => `<th class="${cellClass(header)}">${escapeExportHtml(header)}</th>`).join('')}</tr></thead><tbody>${body.map(row => `<tr>${headers.map(header => `<td class="${cellClass(header)}${typeof row[header] === 'number' ? ' num' : ''}">${escapeExportHtml(value(row[header]))}</td>`).join('')}</tr>`).join('')}</tbody></table></body></html>`
 }
 
 export function exportElementAsPdf(title: string, html: string) {
@@ -36,13 +45,13 @@ export function buildPrintDocument(title: string, html: string) {
           .num { text-align: right; }
           .date-cell { white-space: nowrap; min-width: 82px; width: 82px; }
           .narration-text, .narration-cell { color: #475569; font-size: 10.5px; font-style: italic; }
-          .debit-cell { color: #047857; }
-          .credit-cell { color: #b91c1c; }
-          .balance-cell { color: #1d4ed8; }
-          .total-row td { background: #e2e8f0; color: #0f172a; font-weight: 700; border-top: 2px solid #94a3b8; }
-          .total-row td.debit-cell { color: #047857; }
-          .total-row td.credit-cell { color: #b91c1c; }
-          .total-row td.balance-cell { color: #1d4ed8; }
+          .debit-cell { color: #047857; background: #dcfce7; }
+          .credit-cell { color: #b91c1c; background: #fee2e2; }
+          .balance-cell { color: #1d4ed8; background: #dbeafe; }
+          .total-row td { background: #dbeafe; color: #1d4ed8; font-weight: 700; border-top: 2px solid #60a5fa; }
+          .total-row td.debit-cell { color: #047857; background: #dcfce7; }
+          .total-row td.credit-cell { color: #b91c1c; background: #fee2e2; }
+          .total-row td.balance-cell { color: #1d4ed8; background: #dbeafe; }
         </style>
       </head>
       <body><h1>${safeTitle}</h1>${html}</body>
@@ -98,8 +107,52 @@ export function buildTraditionalTwoSidedExport(
   return { rows, html }
 }
 
+interface HierarchicalReportAccount { name: string; balance?: number }
+interface HierarchicalReportGroup { name: string; total: number; accounts: HierarchicalReportAccount[] }
+interface HierarchicalReportSection { name: string; total: number; groups: HierarchicalReportGroup[] }
+
+export function buildBalanceSheetExport(
+  leftHeading: string,
+  rightHeading: string,
+  leftSections: HierarchicalReportSection[],
+  rightSections: HierarchicalReportSection[],
+  leftTotal: number,
+  rightTotal: number,
+) {
+  type ExportLine = { particulars: string; amount: number; level: 'section' | 'group' | 'account' | 'total' }
+  const flatten = (sections: HierarchicalReportSection[]): ExportLine[] => sections.flatMap(section => [
+    { particulars: section.name, amount: section.total, level: 'section' as const },
+    ...section.groups.flatMap(group => [
+      { particulars: `  ${group.name}`, amount: group.total, level: 'group' as const },
+      ...group.accounts.map(account => ({ particulars: `    ${account.name}`, amount: Number(account.balance || 0), level: 'account' as const })),
+    ]),
+  ])
+  const left = flatten(leftSections)
+  const right = flatten(rightSections)
+  const length = Math.max(left.length, right.length)
+  const rows: Record<string, unknown>[] = Array.from({ length }, (_, index) => ({
+    [`${leftHeading} Particulars`]: left[index]?.particulars || '',
+    [`${leftHeading} Amount`]: left[index]?.amount ?? '',
+    [`${rightHeading} Particulars`]: right[index]?.particulars || '',
+    [`${rightHeading} Amount`]: right[index]?.amount ?? '',
+  }))
+  rows.push({
+    [`${leftHeading} Particulars`]: 'Total', [`${leftHeading} Amount`]: leftTotal,
+    [`${rightHeading} Particulars`]: 'Total', [`${rightHeading} Amount`]: rightTotal,
+  })
+  const cell = (line: ExportLine | undefined, numeric = false) => {
+    if (!line) return '<td></td>'
+    const weight = line.level === 'section' ? 600 : line.level === 'group' ? 500 : 400
+    const background = line.level === 'section' ? '#e2e8f0' : line.level === 'group' ? '#f8fafc' : 'transparent'
+    const value = numeric ? formatReportNumber(line.amount) : escapeExportHtml(line.particulars)
+    return `<td${numeric ? ' class="num balance-cell"' : ''} style="font-family:${numeric ? 'JetBrains Mono, monospace' : 'Inter, Arial, sans-serif'};font-weight:${weight};background:${numeric ? '#dbeafe' : background}">${value}</td>`
+  }
+  const html = `<table class="traditional-account"><colgroup><col><col style="width:120px"><col><col style="width:120px"></colgroup><thead><tr><th colspan="2">${escapeExportHtml(leftHeading)}</th><th colspan="2">${escapeExportHtml(rightHeading)}</th></tr><tr><th>Particulars</th><th class="num balance-cell">Amount</th><th>Particulars</th><th class="num balance-cell">Amount</th></tr></thead><tbody>${Array.from({ length }, (_, index) => `<tr>${cell(left[index])}${cell(left[index], true)}${cell(right[index])}${cell(right[index], true)}</tr>`).join('')}<tr class="total-row"><td>Total</td><td class="num balance-cell" style="font-family:JetBrains Mono, monospace;font-weight:600">${formatReportNumber(leftTotal)}</td><td>Total</td><td class="num balance-cell" style="font-family:JetBrains Mono, monospace;font-weight:600">${formatReportNumber(rightTotal)}</td></tr></tbody></table>`
+  return { rows, html }
+}
+
 export function formatReportNumber(value: number) {
-  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
 }
 
 export function escapeExportHtml(value: string) {

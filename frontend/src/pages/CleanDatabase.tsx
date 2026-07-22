@@ -16,6 +16,7 @@ export default function CleanDatabase() {
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [password, setPassword] = useState('')
   const [addingDefaults, setAddingDefaults] = useState(false)
+  const [showDefaultConfirmation, setShowDefaultConfirmation] = useState(false)
 
   useEffect(() => {
     api.adminCollections().then(rows => {
@@ -43,6 +44,7 @@ export default function CleanDatabase() {
     setAddingDefaults(true)
     try {
       const result = await api.createDefaultAccounts()
+      setShowDefaultConfirmation(false)
       showToast(
         'success',
         result.created > 0
@@ -65,6 +67,15 @@ export default function CleanDatabase() {
 
   return (
     <div>
+      <ConfirmModal
+        open={showDefaultConfirmation}
+        title="Add default ledger accounts?"
+        message="This will create the essential proprietorship and partnership ledger accounts that do not already exist. Existing accounts will not be duplicated or changed."
+        confirmLabel={addingDefaults ? 'Adding…' : 'Add Default Accounts'}
+        confirmDisabled={addingDefaults}
+        onCancel={() => { if (!addingDefaults) setShowDefaultConfirmation(false) }}
+        onConfirm={() => void addDefaultAccounts()}
+      />
       <ConfirmModal
         open={showConfirmation}
         title="Clean selected database data?"
@@ -96,7 +107,7 @@ export default function CleanDatabase() {
             Create the essential ledger set for a clean database using the standard seed mapping.
           </p>
         </div>
-        <button className="btn btn-primary" disabled={addingDefaults} onClick={() => void addDefaultAccounts()}>
+        <button className="btn btn-primary" disabled={addingDefaults} onClick={() => setShowDefaultConfirmation(true)}>
           {addingDefaults ? <Spinner /> : <PlusCircle size={14} />} {addingDefaults ? 'Adding…' : 'Add Default Accounts'}
         </button>
       </div>

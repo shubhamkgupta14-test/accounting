@@ -28,7 +28,7 @@ const mapResponse = (data: FinancialStatementResponse): FinancialReports => ({
   indirectIncome: data.profit_and_loss.indirect_income.map(row => accountFromRow(row, 'Income')),
   assets: data.balance_sheet.assets.map(row => accountFromRow(row, 'Asset')),
   liabilitiesAndCapital: data.balance_sheet.liabilities_and_capital
-    .map(row => accountFromRow(row, row.group === 'Capital' ? 'Equity' : 'Liability')),
+    .map(row => accountFromRow(row, row.type === 'Equity' ? 'Equity' : 'Liability')),
   openingStock: data.profit_and_loss.opening_stock,
   closingStock: data.profit_and_loss.closing_stock,
   openingRetainedEarnings: data.balance_sheet.opening_retained_earnings,

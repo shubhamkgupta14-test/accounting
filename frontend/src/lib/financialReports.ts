@@ -1,7 +1,11 @@
 import type { Account, FiscalSettings, JournalEntry } from './api'
 
 const BALANCE_SHEET_TYPES = new Set<Account['type']>(['Asset', 'Liability', 'Equity'])
-const INVENTORY_TERMS = /stock|inventory|raw[- ]material|finished goods|work[- ]in[- ]progress|\bwip\b|goods in transit|stores (?:and|&) spares/i
+const INVENTORY_TERMS = /stock|inventor(?:y|ies)|raw[- ]material|finished goods|work[- ]in[- ]progress|\bwip\b|goods in transit|stores (?:and|&) spares/i
+const DIRECT_INCOME_GROUPS = new Set(['Direct Income', 'Revenue from Operations'])
+const INDIRECT_INCOME_GROUPS = new Set(['Indirect Income', 'Other Income'])
+const DIRECT_EXPENSE_GROUPS = new Set(['Direct Expenses', 'Cost of Goods Sold', 'Cost of Materials Consumed', 'Purchases of Stock-in-Trade', 'Changes in Inventories'])
+const INDIRECT_EXPENSE_GROUPS = new Set(['Indirect Expenses', 'Employee Benefits Expense', 'Finance Costs', 'Depreciation and Amortisation Expense', 'Other Expenses', 'Current Tax Expense', 'Deferred Tax Expense'])
 
 export interface FinancialReports {
   period: { start: string; end: string }
@@ -111,7 +115,8 @@ export function buildFinancialReports(
       const account = accountByName.get(line.account)
       const normalizedName = line.account.trim().toLowerCase()
       if (!account || (
-        !['Direct Expenses', 'Direct Income'].includes(account.group)
+        !DIRECT_EXPENSE_GROUPS.has(account.group)
+        && !DIRECT_INCOME_GROUPS.has(account.group)
         && !['purchase', 'purchases', 'sale', 'sales'].includes(normalizedName)
       )) continue
       const adjustment = lineAmount(account, line)
@@ -119,15 +124,15 @@ export function buildFinancialReports(
     }
   }
 
-  const rowsFor = (type: Account['type'], group: string, balances = currentMovement) => accounts
-    .filter(account => account.type === type && account.group === group)
+  const rowsFor = (type: Account['type'], groups: Set<string>, balances = currentMovement) => accounts
+    .filter(account => account.type === type && groups.has(account.group))
     .map(account => reportAccount(account, balances.get(account.name) || 0))
     .filter(account => (account.balance || 0) !== 0)
 
-  const directExpenses = rowsFor('Expense', 'Direct Expenses', normalizedDirect)
-  const directIncome = rowsFor('Income', 'Direct Income', normalizedDirect)
-  const indirectExpenses = rowsFor('Expense', 'Indirect Expenses')
-  const indirectIncome = rowsFor('Income', 'Indirect Income')
+  const directExpenses = rowsFor('Expense', DIRECT_EXPENSE_GROUPS, normalizedDirect)
+  const directIncome = rowsFor('Income', DIRECT_INCOME_GROUPS, normalizedDirect)
+  const indirectExpenses = rowsFor('Expense', INDIRECT_EXPENSE_GROUPS)
+  const indirectIncome = rowsFor('Income', INDIRECT_INCOME_GROUPS)
   const directExpenseTotal = directExpenses.reduce((sum, account) => sum + (account.balance || 0), 0)
   const directIncomeTotal = directIncome.reduce((sum, account) => sum + (account.balance || 0), 0)
   const grossProfit = directIncomeTotal + closingStock - openingStock - directExpenseTotal

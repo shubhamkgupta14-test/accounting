@@ -11,6 +11,9 @@ import { useAppSettings } from '../context/SettingsContext'
 import { api, type Voucher } from '../lib/api'
 import ConfirmModal from '../components/ConfirmModal'
 import { Spinner, TableSkeletonRows } from '../components/Loading'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 type VoucherType = 'Payment' | 'Receipt' | 'Contra' | 'Sales' | 'Purchase' | 'Journal'
 
@@ -65,7 +68,7 @@ export default function Vouchers() {
   const [typeFilter, setTypeFilter] = useState('All')
   const [sortBy, setSortBy] = useState('date-desc')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const [selected, setSelected] = useState<any | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -277,7 +280,7 @@ export default function Vouchers() {
                   <td><span className={`badge ${typeColors[v.type] || 'badge-slate'}`}>{v.type}</span></td>
                   <td style={{ fontWeight: 500 }}>{v.party}</td>
                   <td style={{ fontSize: 12.5, color: '#64748B' }}>{v.mode}</td>
-                  <td className="num" style={{ fontWeight: 600 }}>{v.amount.toLocaleString('en-IN')}</td>
+                  <td className="num" style={{ fontWeight: 600 }}>{formatReportNumber(v.amount)}</td>
                   <td><span className={`badge ${v.status === 'Approved' ? 'badge-green' : 'badge-amber'}`}>{v.status === 'Approved' ? <CheckCircle size={10} /> : <Clock size={10} />} {v.status}</span></td>
                   <td style={{ maxWidth: 200 }}><span className="truncate narration-text" style={{ display: 'block' }}>{v.narration}</span></td>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
@@ -291,7 +294,7 @@ export default function Vouchers() {
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={9}><div className="empty-state" style={{ padding: '36px 20px' }}>No vouchers found.</div></td></tr>}
+              {!loadingRows && filtered.length === 0 && <EmptyTableRow colSpan={9} />}
             </tbody>
           </table>
         </div>

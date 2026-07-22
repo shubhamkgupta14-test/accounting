@@ -15,6 +15,8 @@ import AuditCheckbox, {
   AuditUncheckAllButton,
 } from "../components/AuditCheckbox";
 import AccountDrilldown from "../components/AccountDrilldown";
+import { formatReportNumber } from "../lib/export";
+import EmptyTableRow from "../components/EmptyTableRow";
 
 export default function TrialBalance() {
   const { settings, formatMoney, currencySymbol } = useAppSettings();
@@ -218,6 +220,7 @@ export default function TrialBalance() {
               </tr>
             </thead>
             <tbody>
+              {filtered.length === 0 && <EmptyTableRow colSpan={6} />}
               {typeOrder.map((type) => {
                 const rows = filtered.filter((r) => r.type === type);
                 if (!rows.length) return null;
@@ -248,7 +251,7 @@ export default function TrialBalance() {
                           color: "#2563EB",
                         }}
                       >
-                        {subDr ? subDr.toLocaleString("en-IN") : "—"}
+                        {subDr ? formatReportNumber(subDr) : "—"}
                       </td>
                       <td
                         className="num"
@@ -259,7 +262,7 @@ export default function TrialBalance() {
                           color: "#7C3AED",
                         }}
                       >
-                        {subCr ? subCr.toLocaleString("en-IN") : "—"}
+                        {subCr ? formatReportNumber(subCr) : "—"}
                       </td>
                     </tr>
                     {rows.map((r) => (
@@ -386,7 +389,7 @@ export default function TrialBalance() {
                           className="num"
                           style={{ color: r.debit ? "#059669" : "#CBD5E1" }}
                         >
-                          {r.debit ? r.debit.toLocaleString("en-IN") : "—"}
+                          {r.debit ? formatReportNumber(r.debit) : "—"}
                           {r.name.trim().toLowerCase() === "purchases" &&
                             stockInHandValue > 0 &&
                             r.debit > 0 && (
@@ -405,7 +408,7 @@ export default function TrialBalance() {
                           className="num"
                           style={{ color: r.credit ? "#DC2626" : "#CBD5E1" }}
                         >
-                          {r.credit ? r.credit.toLocaleString("en-IN") : "—"}
+                          {r.credit ? formatReportNumber(r.credit) : "—"}
                         </td>
                       </tr>
                     ))}
@@ -434,7 +437,7 @@ export default function TrialBalance() {
                     fontSize: 14,
                   }}
                 >
-                  {totalDr.toLocaleString("en-IN")}
+                  {formatReportNumber(totalDr)}
                 </td>
                 <td
                   className="num total-amount"
@@ -445,7 +448,7 @@ export default function TrialBalance() {
                     fontSize: 14,
                   }}
                 >
-                  {totalCr.toLocaleString("en-IN")}
+                  {formatReportNumber(totalCr)}
                 </td>
               </tr>
             </tfoot>
