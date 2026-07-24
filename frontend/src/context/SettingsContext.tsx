@@ -10,7 +10,7 @@ const fallback: AppSettings = {
   partners: [],
 }
 
-const SettingsContext = createContext({ settings: fallback, loading: true, reload: async () => {}, formatMoney: (value: number) => `₹${value.toLocaleString('en-IN')}`, formatDate: (value: string) => value, currencySymbol: '₹' })
+const SettingsContext = createContext({ settings: fallback, loading: true, reload: async () => {}, formatMoney: (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, formatDate: (value: string) => value, currencySymbol: '₹' })
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
@@ -23,7 +23,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     api.settings().then(setSettings).catch(() => undefined).finally(() => setLoading(false))
   }, [user])
   const formatMoney = (value: number) => new Intl.NumberFormat('en-IN', {
-    style: 'currency', currency: settings.fiscal.currency || 'INR', minimumFractionDigits: 0, maximumFractionDigits: 0,
+    style: 'currency', currency: settings.fiscal.currency || 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(value)
   const currencySymbol = new Intl.NumberFormat('en-IN', { style: 'currency', currency: settings.fiscal.currency || 'INR' }).formatToParts(0).find(part => part.type === 'currency')?.value || settings.fiscal.currency
   const formatDate = (value: string) => {

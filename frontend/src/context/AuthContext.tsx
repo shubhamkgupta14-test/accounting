@@ -5,7 +5,9 @@ interface AuthContextValue {
   user: AuthUser | null
   loading: boolean
   canWrite: boolean
+  canUseAI: boolean
   canManageUsers: boolean
+  canManageRecord: (createdBy?: string) => boolean
   login: (email: string, password: string) => Promise<void>
   updateProfile: (payload: { first_name: string; last_name: string; email: string; audit_mode?: boolean }) => Promise<void>
   logout: () => Promise<void>
@@ -28,7 +30,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     loading,
     canWrite: user?.role === 'admin' || user?.role === 'superadmin',
+    canUseAI: user?.role === 'admin' || user?.role === 'superadmin',
     canManageUsers: user?.role === 'superadmin',
+    canManageRecord: createdBy => user?.role === 'superadmin' || (user?.role === 'admin' && Boolean(createdBy) && createdBy === user.id),
     login: async (email, password) => {
       const result = await api.login(email, password)
       setUser(result.user)

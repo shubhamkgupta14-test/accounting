@@ -3,7 +3,8 @@
 The script creates or skips JV-001 through JV-050 and is safe to run
 repeatedly. Existing vouchers, including JV-001, are never recreated.
 
-RUN -> npm run seed:vouchers -- --base-url http://127.0.0.1:8000 --email superadmin@accountingapp.com --password password123
+Set ACCOUNTING_API_EMAIL and ACCOUNTING_API_PASSWORD, then run:
+npm run seed:vouchers -- --base-url http://127.0.0.1:8000
 """
 
 from __future__ import annotations
@@ -39,19 +40,19 @@ TYPE_CODE_PREFIX = {"Asset": "A", "Liability": "L",
                     "Equity": "E", "Income": "I", "Expense": "X"}
 
 GROUP_CODE_PREFIX = {
-    "Cash": "CH",
-    "Bank": "BK",
-    "Current Assets": "CA",
-    "Fixed Assets": "FA",
-    "Non-current Assets": "NCA",
-    "Current Liabilities": "CL",
-    "Tax Liabilities": "TL",
-    "Long-term Liabilities": "LL",
-    "Capital": "CP",
+    "Cash-in-Hand": "CIH",
+    "Bank Accounts": "BANK",
+    "Inventories": "INV",
+    "Trade Receivables": "TR",
+    "Trade Payables": "TP",
+    "Proprietor's Capital": "PC",
+    "Drawings": "DRW",
     "Direct Income": "DI",
     "Indirect Income": "II",
+    "Other Income": "OI",
     "Direct Expenses": "DE",
     "Indirect Expenses": "IE",
+    "Other Expenses": "OE",
 }
 
 
@@ -64,34 +65,34 @@ def next_account_code(account_type: str, group: str, used_codes: set[str]) -> st
 
 
 ACCOUNTS = [
-    ("Cash", "Asset", "Cash"),
-    ("Bank Account", "Asset", "Bank"),
-    ("Closing Stock", "Asset", "Current Assets"),
-    ("Ravi", "Asset", "Current Assets"),
-    ("Neha", "Asset", "Current Assets"),
-    ("Amit", "Asset", "Current Assets"),
-    ("Capital", "Equity", "Capital"),
-    ("Aman Traders", "Liability", "Current Liabilities"),
-    ("Bharat Suppliers", "Liability", "Current Liabilities"),
-    ("City Wholesalers", "Liability", "Current Liabilities"),
-    ("Deepak Traders", "Liability", "Current Liabilities"),
+    ("Cash", "Asset", "Cash-in-Hand"),
+    ("Bank Account", "Asset", "Bank Accounts"),
+    ("Closing Stock", "Asset", "Inventories"),
+    ("Ravi", "Asset", "Trade Receivables"),
+    ("Neha", "Asset", "Trade Receivables"),
+    ("Amit", "Asset", "Trade Receivables"),
+    ("Capital", "Equity", "Proprietor's Capital"),
+    ("Aman Traders", "Liability", "Trade Payables"),
+    ("Bharat Suppliers", "Liability", "Trade Payables"),
+    ("City Wholesalers", "Liability", "Trade Payables"),
+    ("Deepak Traders", "Liability", "Trade Payables"),
     ("Sales", "Income", "Direct Income"),
     ("Commission Income", "Income", "Indirect Income"),
-    ("Interest Income", "Income", "Indirect Income"),
-    ("Discount Received", "Income", "Indirect Income"),
+    ("Interest Income", "Income", "Other Income"),
+    ("Discount Received", "Income", "Other Income"),
     ("Purchases", "Expense", "Direct Expenses"),
     ("Purchase Returns", "Income", "Direct Income"),
-    ("Sales Returns", "Expense", "Direct Expenses"),
+    ("Sales Returns", "Income", "Direct Income"),
     ("Wages", "Expense", "Direct Expenses"),
     ("Freight / Carriage Inwards", "Expense", "Direct Expenses"),
-    ("Rent Expense", "Expense", "Indirect Expenses"),
+    ("Rent Expense", "Expense", "Other Expenses"),
     ("Salary Expense", "Expense", "Indirect Expenses"),
-    ("Electricity Expense", "Expense", "Indirect Expenses"),
-    ("Printing & Stationery", "Expense", "Indirect Expenses"),
-    ("Advertisement Expense", "Expense", "Indirect Expenses"),
-    ("Insurance Expense", "Expense", "Indirect Expenses"),
-    ("Discount Allowed", "Expense", "Indirect Expenses"),
-    ("Drawings", "Equity", "Capital"),
+    ("Electricity Expense", "Expense", "Other Expenses"),
+    ("Printing & Stationery", "Expense", "Other Expenses"),
+    ("Advertisement Expense", "Expense", "Other Expenses"),
+    ("Insurance Expense", "Expense", "Other Expenses"),
+    ("Discount Allowed", "Expense", "Other Expenses"),
+    ("Drawings", "Equity", "Drawings"),
 ]
 
 
@@ -312,12 +313,14 @@ def main() -> int:
     parser.add_argument(
         "--base-url", default=os.getenv("ACCOUNTING_API_URL", "http://localhost:8000"))
     parser.add_argument(
-        "--email", default=os.getenv("ACCOUNTING_API_EMAIL", "superadmin@accountingapp.com"))
+        "--email", default=os.getenv("ACCOUNTING_API_EMAIL"))
     parser.add_argument(
         "--password", default=os.getenv("ACCOUNTING_API_PASSWORD"))
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate and inspect without writing")
     args = parser.parse_args()
+    if not args.email:
+        parser.error("set ACCOUNTING_API_EMAIL or pass --email")
     if not args.password:
         parser.error("set ACCOUNTING_API_PASSWORD or pass --password")
 

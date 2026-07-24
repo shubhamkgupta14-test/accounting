@@ -8,6 +8,8 @@ import PageIntro from '../components/PageIntro'
 import { api, type JournalEntry } from '../lib/api'
 import type { ReportPeriod } from '../lib/api'
 import { PageSkeleton } from '../components/Loading'
+import { formatReportNumber } from '../lib/export'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 interface Props { onNavigate: (page: PageId) => void }
 
@@ -56,7 +58,7 @@ const CustomTooltip = ({ active, payload, label, currencySymbol }: any) => {
 
 export default function Dashboard({ onNavigate }: Props) {
   const { canWrite } = useAuth()
-  const { settings, formatMoney, formatDate, currencySymbol } = useAppSettings()
+  const { settings, formatDate, currencySymbol } = useAppSettings()
   const [report, setReport] = useState<DashboardReport>(emptyReport)
   const [initialLoading, setInitialLoading] = useState(true)
   const [graphPeriods, setGraphPeriods] = useState<ReportPeriod[]>([])
@@ -74,8 +76,6 @@ export default function Dashboard({ onNavigate }: Props) {
   }, [])
   useEffect(() => {
     void refresh().catch(() => undefined)
-    const interval = window.setInterval(() => { void refresh().catch(() => undefined) }, 10 * 60 * 1000)
-    return () => window.clearInterval(interval)
   }, [refresh])
   const stats = [
     { label: 'Cash Balance', value: report.stats.cash, color: '#10B981', background: '#ECFDF5', icon: <Wallet size={19} /> },
@@ -120,7 +120,7 @@ export default function Dashboard({ onNavigate }: Props) {
           <div key={s.label} className="card stat-card" style={{ position: 'relative', overflow: 'hidden', minHeight: 92 }}>
             <div style={{ paddingRight: 42 }}>
               <div className="label">{s.label}</div>
-              <div className="value" style={{ fontSize: 20, color: s.color }}>{formatMoney(s.value)}</div>
+              <div className="value" style={{ fontSize: 20, color: s.color }}>{fmt(s.value, currencySymbol)}</div>
             </div>
             <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 1, width: 38, height: 38, borderRadius: 10, background: s.background, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {s.icon}
@@ -231,15 +231,13 @@ export default function Dashboard({ onNavigate }: Props) {
                     <td><span className="mono" style={{ fontSize: 12.5, color: '#2563EB', fontWeight: 500 }}>{e.voucherNo}</span></td>
                     <td><span className="mono" style={{ fontSize: 12.5 }}>{formatDate(e.date)}</span></td>
                     <td><span className="narration-text">{e.narration}</span></td>
-                    <td className="num dr-amount">{dr.toLocaleString('en-IN')}</td>
-                    <td className="num cr-amount">{cr.toLocaleString('en-IN')}</td>
+                    <td className="num dr-amount">{formatReportNumber(dr)}</td>
+                    <td className="num cr-amount">{formatReportNumber(cr)}</td>
                     <td><span className={`badge ${e.status === 'Posted' ? 'badge-green' : 'badge-amber'}`}>{e.status}</span></td>
                   </tr>
                 )
               })}
-              {recentEntries.length === 0 && (
-                <tr><td colSpan={6}><div className="empty-state" style={{ padding: '36px 20px' }}>No journal entries yet.</div></td></tr>
-              )}
+              {recentEntries.length === 0 && <EmptyTableRow colSpan={6} />}
             </tbody>
           </table>
         </div>

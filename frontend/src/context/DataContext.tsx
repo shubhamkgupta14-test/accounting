@@ -246,18 +246,6 @@ export function DataProvider({ children, activePage }: { children: React.ReactNo
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    if (!user) return;
-    const interval = window.setInterval(
-      () => {
-        accountsCacheRef.current = [];
-        void refresh();
-      },
-      10 * 60 * 1000,
-    );
-    return () => window.clearInterval(interval);
-  }, [refresh, user]);
-
   const value = useMemo<DataContextValue>(
     () => ({
       accounts,

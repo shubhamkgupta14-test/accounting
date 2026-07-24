@@ -11,6 +11,9 @@ import { useAppSettings } from '../context/SettingsContext'
 import { api, type Voucher } from '../lib/api'
 import ConfirmModal from '../components/ConfirmModal'
 import { Spinner, TableSkeletonRows } from '../components/Loading'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 type VoucherType = 'Payment' | 'Receipt' | 'Contra' | 'Sales' | 'Purchase' | 'Journal'
 
@@ -20,7 +23,7 @@ const typeColors: Record<string, string> = {
 }
 
 const types: VoucherType[] = ['Payment', 'Receipt', 'Contra', 'Sales', 'Purchase', 'Journal']
-const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { voucher: any; onClose: () => void; onApprove: () => void; canWrite: boolean; formatMoney: (value: number) => string }) => (
+const VoucherModal = ({ voucher, onClose, onApprove, canApprove, formatMoney }: { voucher: any; onClose: () => void; onApprove: () => void; canApprove: boolean; formatMoney: (value: number) => string }) => (
   <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
     <div className="card" style={{ width: 520, padding: '28px 32px', position: 'relative' }}>
       <button style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4 }} onClick={onClose}>x</button>
@@ -49,7 +52,7 @@ const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { 
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button className="btn btn-secondary" onClick={onClose}>Close</button>
-        {voucher.status === 'Pending' && canWrite && <button className="btn btn-secondary" onClick={onApprove}>Approve</button>}
+        {voucher.status === 'Pending' && canApprove && <button className="btn btn-secondary" onClick={onApprove}>Approve</button>}
         <button className="btn btn-primary">Print Voucher</button>
       </div>
     </div>
@@ -59,13 +62,13 @@ const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { 
 export default function Vouchers() {
   const { createVoucher, approveVoucher } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
-  const { canWrite } = useAuth()
+  const { canWrite, canManageRecord } = useAuth()
   const { showToast } = useToast()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
   const [sortBy, setSortBy] = useState('date-desc')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const [selected, setSelected] = useState<any | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -277,21 +280,33 @@ export default function Vouchers() {
                   <td><span className={`badge ${typeColors[v.type] || 'badge-slate'}`}>{v.type}</span></td>
                   <td style={{ fontWeight: 500 }}>{v.party}</td>
                   <td style={{ fontSize: 12.5, color: '#64748B' }}>{v.mode}</td>
-                  <td className="num" style={{ fontWeight: 600 }}>{v.amount.toLocaleString('en-IN')}</td>
+                  <td className="num" style={{ fontWeight: 600 }}>{formatReportNumber(v.amount)}</td>
                   <td><span className={`badge ${v.status === 'Approved' ? 'badge-green' : 'badge-amber'}`}>{v.status === 'Approved' ? <CheckCircle size={10} /> : <Clock size={10} />} {v.status}</span></td>
                   <td style={{ maxWidth: 200 }}><span className="truncate narration-text" style={{ display: 'block' }}>{v.narration}</span></td>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <div className="table-action-icons">
                     <button className="btn btn-ghost btn-icon" title="View voucher" aria-label="View voucher" onClick={() => setSelected(v)}><Eye size={14} /></button>
                     {canWrite && <>
-                      <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit voucher" aria-label="Edit voucher" onClick={() => openEditForm(v)}><Pencil size={14} /></button>
-                      <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete voucher" aria-label="Delete voucher" onClick={() => setDeleteTarget(v)}><Trash2 size={14} /></button>
+                      <button
+                        className="btn btn-ghost btn-icon btn-icon-primary"
+                        title={canManageRecord(v.created_by) ? 'Edit voucher' : 'Only the creator or a superadmin can edit this voucher'}
+                        aria-label="Edit voucher"
+                        disabled={!canManageRecord(v.created_by)}
+                        onClick={() => openEditForm(v)}
+                      ><Pencil size={14} /></button>
+                      <button
+                        className="btn btn-ghost btn-icon btn-delete-icon"
+                        title={canManageRecord(v.created_by) ? 'Delete voucher' : 'Only the creator or a superadmin can delete this voucher'}
+                        aria-label="Delete voucher"
+                        disabled={!canManageRecord(v.created_by)}
+                        onClick={() => setDeleteTarget(v)}
+                      ><Trash2 size={14} /></button>
                     </>}
                     </div>
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={9}><div className="empty-state" style={{ padding: '36px 20px' }}>No vouchers found.</div></td></tr>}
+              {!loadingRows && filtered.length === 0 && <EmptyTableRow colSpan={9} />}
             </tbody>
           </table>
         </div>
@@ -299,7 +314,7 @@ export default function Vouchers() {
         <div className="total-amount" style={{ padding: '0 20px 12px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>Filtered total: {formatMoney(filtered.reduce((s, v) => s + v.amount, 0))}</div>
       </div>
 
-      {selected && <VoucherModal voucher={selected} canWrite={canWrite} formatMoney={formatMoney} onClose={() => setSelected(null)} onApprove={async () => {
+      {selected && <VoucherModal voucher={selected} canApprove={canManageRecord(selected.created_by)} formatMoney={formatMoney} onClose={() => setSelected(null)} onApprove={async () => {
         try {
           await approveVoucher(selected.backendId || selected.id)
           setSelected(null)

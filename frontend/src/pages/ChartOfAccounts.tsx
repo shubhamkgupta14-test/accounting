@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plus, Search, Edit2, Trash2, X } from 'lucide-react'
 import { useLedgerData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -12,6 +12,10 @@ import { Spinner, TableSkeletonRows } from '../components/Loading'
 import AuditCheckbox, { AuditUncheckAllButton } from '../components/AuditCheckbox'
 import AccountDrilldown from '../components/AccountDrilldown'
 import ConfirmModal from '../components/ConfirmModal'
+import { accountGroups, defaultAccountGroup } from '../lib/accountGroups'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
 
@@ -28,27 +32,19 @@ const typeColors: Record<string, string> = {
   Income: 'badge-green', Expense: 'badge-slate',
 }
 
-const defaultGroups: Record<AccountType, string> = {
-  Asset: 'Current Assets',
-  Liability: 'Current Liabilities',
-  Equity: 'Capital',
-  Income: 'Direct Income',
-  Expense: 'Indirect Expenses',
-}
-
 const nextAccountCode = (count: number) => `AC${String(count + 1).padStart(3, '0')}`
 
 export default function ChartOfAccounts() {
   const { accounts, createAccount, updateAccount, deleteAccount } = useLedgerData()
   const { currencySymbol } = useAppSettings()
-  const { canWrite, canManageUsers } = useAuth()
+  const { canWrite, canManageRecord } = useAuth()
   const { showToast } = useToast()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
   const [groupFilter, setGroupFilter] = useState('All')
   const [sortBy, setSortBy] = useState('code')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
   const [rows, setRows] = useState<Account[]>([])
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<{ total: number; by_type: Record<string, number>; groups: string[] }>({ total: 0, by_type: {}, groups: [] })
@@ -59,11 +55,12 @@ export default function ChartOfAccounts() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
+  const formRef = useRef<HTMLDivElement>(null)
   const [form, setForm] = useState<AccountForm>({
     code: nextAccountCode(accounts.length),
     name: '',
     type: 'Asset',
-    group: defaultGroups.Asset,
+    group: defaultAccountGroup('Asset'),
     opening_balance: 0,
   })
 
@@ -73,7 +70,7 @@ export default function ChartOfAccounts() {
       code: nextAccountCode(accounts.length),
       name: '',
       type: 'Asset',
-      group: defaultGroups.Asset,
+      group: defaultAccountGroup('Asset'),
       opening_balance: 0,
     })
     setError('')
@@ -94,8 +91,16 @@ export default function ChartOfAccounts() {
     setShowForm(true)
   }
 
+  useEffect(() => {
+    if (!showForm) return
+    const frame = window.requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [editingId, showForm])
+
   const updateType = (type: AccountType) => {
-    setForm(current => ({ ...current, type, group: defaultGroups[type] }))
+    setForm(current => ({ ...current, type, group: defaultAccountGroup(type) }))
   }
 
   const saveAccount = async () => {
@@ -135,7 +140,8 @@ export default function ChartOfAccounts() {
     setDeleteTarget(null)
     try {
       await deleteAccount(account.backendId)
-      setReloadKey(value => value + 1)
+      if (rows.length === 1 && page > 1) setPage(current => current - 1)
+      else setReloadKey(value => value + 1)
       showToast('success', `Ledger account "${account.name}" deleted.`, {
         duration: 10000,
         action: { label: 'Undo', onClick: () => {
@@ -216,7 +222,7 @@ export default function ChartOfAccounts() {
       </div>
 
       {showForm && (
-        <div className="card" style={{ marginBottom: 20, padding: '20px 24px' }}>
+        <div ref={formRef} className="card" style={{ marginBottom: 20, padding: '20px 24px', scrollMarginTop: 76 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{editingId ? 'Edit Ledger Account' : 'Add Ledger Account'}</h3>
             <button className="btn btn-ghost btn-icon" style={{ padding: '4px 8px' }} onClick={() => setShowForm(false)}>
@@ -244,7 +250,10 @@ export default function ChartOfAccounts() {
             </div>
             <div>
               <label className="form-label required">Group</label>
-              <input className="input" value={form.group} onChange={e => setForm(f => ({ ...f, group: e.target.value }))} />
+              <select className="select" style={{ width: '100%' }} value={form.group} onChange={e => setForm(f => ({ ...f, group: e.target.value }))}>
+                {!accountGroups[form.type].includes(form.group) && <option value={form.group}>{form.group} (Legacy)</option>}
+                {accountGroups[form.type].map(group => <option key={group} value={group}>{group}</option>)}
+              </select>
             </div>
             <div>
               <label className="form-label">Opening Balance</label>
@@ -309,11 +318,11 @@ export default function ChartOfAccounts() {
                 <th>Type</th>
                 <th>Group</th>
                 <th className="num">Balance ({currencySymbol})</th>
-                {(canWrite || canManageUsers) && <th style={{ textAlign: 'center' }}>Actions</th>}
+                {canWrite && <th style={{ textAlign: 'center' }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 7 : 6} />}
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite ? 7 : 6} />}
               {!loadingRows && rows.map(a => (
                 <tr key={a.id}>
                   <td style={{ width: 36, minWidth: 36, padding: '8px 4px', textAlign: 'center' }}>
@@ -323,34 +332,34 @@ export default function ChartOfAccounts() {
                   <td style={{ fontWeight: 500 }}><AccountDrilldown account={a.name} /></td>
                   <td><span className={`badge ${typeColors[a.type] || 'badge-slate'}`}>{a.type}</span></td>
                   <td><span className="group-text">{a.group}</span></td>
-                  <td className="num" style={{ fontWeight: 600 }}>{(a.balance || 0).toLocaleString('en-IN')}</td>
-                  {(canWrite || canManageUsers) && (
+                  <td className="num" style={{ fontWeight: 600 }}>{formatReportNumber(a.balance || 0)}</td>
+                  {canWrite && (
                     <td style={{ textAlign: 'center' }}>
                       <div className="table-action-icons">
-                        {canWrite && (
-                          <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit ledger account" aria-label="Edit ledger account" onClick={() => openEditForm(a)}>
-                            <Edit2 size={14} />
-                          </button>
-                        )}
-                        {canManageUsers && (
-                          <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete ledger account" aria-label="Delete ledger account" onClick={() => setDeleteTarget(a)}>
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                        <button
+                          className="btn btn-ghost btn-icon btn-icon-primary"
+                          title={canManageRecord(a.created_by) ? 'Edit ledger account' : 'Only the creator or a superadmin can edit this ledger account'}
+                          aria-label="Edit ledger account"
+                          disabled={!canManageRecord(a.created_by)}
+                          onClick={() => openEditForm(a)}
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-icon btn-delete-icon"
+                          title={canManageRecord(a.created_by) ? 'Delete ledger account' : 'Only the creator or a superadmin can delete this ledger account'}
+                          aria-label="Delete ledger account"
+                          disabled={!canManageRecord(a.created_by)}
+                          onClick={() => setDeleteTarget(a)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </td>
                   )}
                 </tr>
               ))}
-              {!loadingRows && rows.length === 0 && (
-                <tr>
-                  <td colSpan={canWrite || canManageUsers ? 7 : 6}>
-                    <div className="empty-state" style={{ padding: '36px 20px' }}>
-                      <p>No ledger accounts yet. Add ledger accounts before creating journal entries.</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
+              {!loadingRows && rows.length === 0 && <EmptyTableRow colSpan={canWrite ? 7 : 6} />}
             </tbody>
           </table>
         </div>

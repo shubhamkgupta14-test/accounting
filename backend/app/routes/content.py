@@ -21,6 +21,7 @@ PAGE_CONTENT = {
     "balance-sheet": {"title": "Balance Sheet", "description": "Assets, liabilities, and capital from the chart of accounts"},
     "daybook": {"title": "Day Book", "description": "Chronological log of all journal entries"},
     "chart-of-accounts": {"title": "Ledger Accounts", "description": "Create, classify, and maintain ledger accounts"},
+    "partners": {"title": "Partner Accounts", "description": "Manage partner capital, profit-sharing, drawings, admission, and retirement"},
     "reports": {"title": "Reports", "description": "Financial statements, book reports, and management insights"},
     "account-summary": {"title": "Account Summary", "description": "Balances grouped by account classification"},
     "profit-analysis": {"title": "Profit Analysis", "description": "Complete income, expense, and profitability analysis"},

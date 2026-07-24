@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
 import secrets
 from typing import Literal
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, EmailStr, Field
 from app.core.config import settings
 from app.core.database import get_database
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core.multi_ai_sessions import remove_request_session_key
 from app.dependencies import get_current_user, require_roles
 from app.email import send_html_email
 from app.email_templates import otp_email_html
@@ -18,6 +20,11 @@ from app.pagination import PageParams, SortOrder, page_response, safe_search, so
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 DUMMY_PASSWORD_HASH = hash_password("invalid-password-placeholder")
+LOGIN_WINDOW_SECONDS = 15 * 60
+LOGIN_PAIR_LIMIT = 5
+LOGIN_ACCOUNT_LIMIT = 10
+LOGIN_IP_LIMIT = 30
+RESET_WINDOW_SECONDS = 15 * 60
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -72,29 +79,81 @@ class ProfileUpdate(BaseModel):
     audit_mode: bool = False
 
 
-async def _authenticate_user(email: str, password: str, request: Request):
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_id(scope: str, value: str) -> str:
+    digest = hashlib.sha256(value.casefold().encode("utf-8")).hexdigest()
+    return f"{scope}:{digest}"
+
+
+def _retry_after(rate: dict, now: datetime, window_seconds: int) -> int:
+    started = rate.get("window_started", now).replace(tzinfo=timezone.utc)
+    return max(1, int(window_seconds - (now - started).total_seconds()))
+
+
+async def _assert_not_limited(rate_id: str, limit: int, window_seconds: int) -> None:
+    now = datetime.now(timezone.utc)
+    rate = await get_database().auth_rate_limits.find_one({"_id": rate_id})
+    if not rate:
+        return
+    started = rate.get("window_started", now).replace(tzinfo=timezone.utc)
+    if started <= now - timedelta(seconds=window_seconds):
+        return
+    if int(rate.get("attempts", 0)) >= limit:
+        retry_after = _retry_after(rate, now, window_seconds)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+async def _record_rate_event(rate_id: str, window_seconds: int) -> None:
     db = get_database()
     now = datetime.now(timezone.utc)
+    rate = await db.auth_rate_limits.find_one({"_id": rate_id})
+    started = rate.get("window_started", now).replace(tzinfo=timezone.utc) if rate else now
+    if not rate or started <= now - timedelta(seconds=window_seconds):
+        await db.auth_rate_limits.update_one(
+            {"_id": rate_id},
+            {"$set": {"attempts": 1, "window_started": now, "updated_at": now}},
+            upsert=True,
+        )
+        return
+    await db.auth_rate_limits.update_one(
+        {"_id": rate_id},
+        {"$inc": {"attempts": 1}, "$set": {"updated_at": now}},
+    )
+
+
+async def _consume_rate(rate_id: str, limit: int, window_seconds: int) -> None:
+    await _assert_not_limited(rate_id, limit, window_seconds)
+    await _record_rate_event(rate_id, window_seconds)
+
+
+async def _authenticate_user(email: str, password: str, request: Request):
+    db = get_database()
     normalized_email = email.lower()
-    rate_key = f"{normalized_email}:{request.client.host if request.client else 'unknown'}"
-    rate = await db.auth_rate_limits.find_one({"_id": rate_key})
-    if rate and rate.get("blocked_until") and rate["blocked_until"].replace(tzinfo=timezone.utc) > now:
-        raise HTTPException(
-            status_code=429, detail="Too many login attempts. Please try again later")
+    client_ip = _client_ip(request)
+    rate_ids = [
+        (_rate_id("login-pair", f"{normalized_email}:{client_ip}"), LOGIN_PAIR_LIMIT),
+        (_rate_id("login-account", normalized_email), LOGIN_ACCOUNT_LIMIT),
+        (_rate_id("login-ip", client_ip), LOGIN_IP_LIMIT),
+    ]
+    for rate_id, limit in rate_ids:
+        await _assert_not_limited(rate_id, limit, LOGIN_WINDOW_SECONDS)
     user = await db.users.find_one({"email": normalized_email, "is_active": True})
     password_valid = verify_password(
         password, user["password_hash"] if user else DUMMY_PASSWORD_HASH)
     if not user or not password_valid:
-        attempts = int(rate.get("attempts", 0)) + 1 if rate and rate.get("updated_at",
-                                                                         now).replace(tzinfo=timezone.utc) > now - timedelta(minutes=15) else 1
-        update = {"attempts": attempts, "updated_at": now}
-        if attempts >= 5:
-            update["blocked_until"] = now + timedelta(minutes=15)
-        await db.auth_rate_limits.update_one({"_id": rate_key}, {"$set": update}, upsert=True)
+        for rate_id, _ in rate_ids:
+            await _record_rate_event(rate_id, LOGIN_WINDOW_SECONDS)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
-    await db.auth_rate_limits.delete_one({"_id": rate_key})
+    await db.auth_rate_limits.delete_one({"_id": rate_ids[0][0]})
     return user
 
 
@@ -119,7 +178,8 @@ async def oauth2_token(request: Request, form: OAuth2PasswordRequestForm = Depen
 
 
 @router.post("/logout", status_code=204)
-async def logout(response: Response, current_user=Depends(get_current_user)):
+async def logout(request: Request, response: Response, current_user=Depends(get_current_user)):
+    remove_request_session_key(request)
     await get_database().users.update_one(
         {"_id": object_id(current_user["id"], "User")},
         {"$inc": {"token_version": 1}, "$set": {
@@ -181,12 +241,12 @@ async def create_user(payload: UserCreate, _: dict = Depends(require_roles("supe
 
 @router.patch("/users/{user_id}/status")
 async def set_user_status(user_id: str, is_active: bool, _: dict = Depends(require_roles("superadmin"))):
-    from bson import ObjectId
     db = get_database()
     result = await db.users.update_one(
         {"_id": object_id(user_id, "User")},
         {"$set": {"is_active": is_active,
-                  "updated_at": datetime.now(timezone.utc)}},
+                  "updated_at": datetime.now(timezone.utc)},
+         "$inc": {"token_version": 1}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
@@ -241,25 +301,38 @@ async def update_profile(payload: ProfileUpdate, current_user=Depends(get_curren
 
 
 @router.post("/forgot-password")
-async def forgot_password(payload: ForgotPasswordRequest):
+async def forgot_password(payload: ForgotPasswordRequest, request: Request):
     db = get_database()
-    user = await db.users.find_one({"email": payload.email.lower(), "is_active": True})
+    normalized_email = payload.email.lower()
+    await _consume_rate(
+        _rate_id("forgot-ip", _client_ip(request)), 20, 60 * 60)
+    await _consume_rate(
+        _rate_id("forgot-account", normalized_email), 5, 60 * 60)
+    generic = {
+        "message": "If the email exists, an OTP has been sent",
+        "cooldown_seconds": settings.otp_resend_cooldown_seconds,
+    }
+    # Perform the same expensive password-hash work for existing and unknown
+    # accounts so recovery timing does not provide a cheap enumeration signal.
+    otp = f"{secrets.randbelow(900000) + 100000}"
+    otp_hash = hash_password(otp)
+    user = await db.users.find_one({"email": normalized_email, "is_active": True})
     if not user:
-        return {"message": "If the email exists, an OTP has been sent", "cooldown_seconds": settings.otp_resend_cooldown_seconds}
-    latest = await db.password_reset_otps.find_one({"email": payload.email.lower(), "used": False}, sort=[("created_at", -1)])
+        return generic
+    latest = await db.password_reset_otps.find_one({"email": normalized_email, "used": False}, sort=[("created_at", -1)])
     if latest:
         created_at = latest["created_at"].replace(tzinfo=timezone.utc)
         cooldown_until = created_at + \
             timedelta(seconds=settings.otp_resend_cooldown_seconds)
         if cooldown_until > datetime.now(timezone.utc):
-            wait = int(
-                (cooldown_until - datetime.now(timezone.utc)).total_seconds())
-            raise HTTPException(
-                status_code=429, detail=f"Please wait {wait} seconds before requesting another OTP")
-    otp = f"{secrets.randbelow(900000) + 100000}"
+            return generic
+    await db.password_reset_otps.update_many(
+        {"email": normalized_email, "used": False},
+        {"$set": {"used": True, "superseded_at": datetime.now(timezone.utc)}},
+    )
     doc = {
-        "email": payload.email.lower(),
-        "otp_hash": hash_password(otp),
+        "email": normalized_email,
+        "otp_hash": otp_hash,
         "expires_at": datetime.now(timezone.utc) + timedelta(minutes=settings.otp_expires_minutes),
         "used": False,
         "attempts": 0,
@@ -267,17 +340,22 @@ async def forgot_password(payload: ForgotPasswordRequest):
     }
     await db.password_reset_otps.insert_one(doc)
     html = otp_email_html(settings.app_name, otp)
-    if settings.env.lower() in {"prod", "production"}:
-        send_html_email(
-            payload.email, f"{settings.app_name} password reset OTP", html)
-        return {"message": "If the email exists, an OTP has been sent", "cooldown_seconds": settings.otp_resend_cooldown_seconds}
-    return {"message": "OTP generated for local/dev", "otp": otp, "html": html, "cooldown_seconds": settings.otp_resend_cooldown_seconds}
+    if settings.is_test_or_dev:
+        return {**generic, "message": "OTP generated for dev/test", "otp": otp}
+    send_html_email(
+        payload.email, f"{settings.app_name} password reset OTP", html)
+    return generic
 
 
 @router.post("/reset-password")
-async def reset_password(payload: ResetPasswordRequest):
+async def reset_password(payload: ResetPasswordRequest, request: Request):
     db = get_database()
-    reset = await db.password_reset_otps.find_one({"email": payload.email.lower(), "used": False}, sort=[("created_at", -1)])
+    normalized_email = payload.email.lower()
+    await _consume_rate(
+        _rate_id("reset-ip", _client_ip(request)), 20, RESET_WINDOW_SECONDS)
+    await _consume_rate(
+        _rate_id("reset-account", normalized_email), 10, RESET_WINDOW_SECONDS)
+    reset = await db.password_reset_otps.find_one({"email": normalized_email, "used": False}, sort=[("created_at", -1)])
     if not reset or reset["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=400, detail="OTP is invalid or expired")
@@ -293,7 +371,7 @@ async def reset_password(payload: ResetPasswordRequest):
     if claimed.modified_count != 1:
         raise HTTPException(
             status_code=400, detail="OTP is invalid or expired")
-    user = await db.users.find_one({"email": payload.email.lower(), "is_active": True})
+    user = await db.users.find_one({"email": normalized_email, "is_active": True})
     if not user:
         raise HTTPException(
             status_code=400, detail="OTP is invalid or expired")

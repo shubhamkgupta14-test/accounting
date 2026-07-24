@@ -6,6 +6,7 @@ import PageIntro from '../components/PageIntro'
 import PasswordInput from '../components/PasswordInput'
 import { UserManagementSkeleton } from '../components/Loading'
 import ConfirmModal from '../components/ConfirmModal'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function UserManagement() {
   const { showToast } = useToast()
@@ -15,7 +16,12 @@ export default function UserManagement() {
   const [deleteTarget, setDeleteTarget] = useState<AuthUser | null>(null)
 
   const load = async () => {
-    try { setUsers(await api.users()) }
+    try {
+      setUsers(await api.users())
+    } catch (err) {
+      setUsers([])
+      showToast('error', err instanceof Error ? err.message : 'Unable to load users.')
+    }
     finally { setLoading(false) }
   }
   useEffect(() => { void load() }, [])
@@ -84,6 +90,7 @@ export default function UserManagement() {
         <table className="data-table">
           <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
           <tbody>
+            {users.length === 0 && <EmptyTableRow colSpan={6} />}
             {users.map(user => (
               <tr key={user.id}>
                 <td>{user.first_name} {user.last_name}</td>

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { DataProvider, useLedgerData } from './context/DataContext'
 import { ToastProvider } from './context/ToastContext'
@@ -11,6 +11,9 @@ import { ContentProvider } from './context/ContentContext'
 import PageFooter from './components/PageFooter'
 import { PageSkeletonFor, Spinner } from './components/Loading'
 import LedgerQuickView from './components/LedgerQuickView'
+import AppErrorBoundary from './components/AppErrorBoundary'
+import AIChatDrawer from './components/AIChatDrawer'
+import { AIProvider } from './context/AIContext'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const JournalEntries = lazy(() => import('./pages/JournalEntries'))
@@ -37,39 +40,49 @@ export type PageId =
   | 'dashboard' | 'journal' | 'vouchers' | 'ledger'
   | 'cashbook' | 'bankbook' | 'trial-balance' | 'trading'
   | 'profit-loss' | 'balance-sheet' | 'daybook'
-  | 'chart-of-accounts' | 'reports' | 'settings'
+  | 'chart-of-accounts' | 'partners' | 'reports' | 'settings'
   | 'notifications' | 'user-management' | 'clean-db'
   | 'account-summary' | 'profit-analysis' | 'cash-flow-report'
 
 const pageIds: PageId[] = [
   'dashboard', 'journal', 'vouchers', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading',
-  'profit-loss', 'balance-sheet', 'daybook', 'chart-of-accounts', 'reports', 'settings',
+  'profit-loss', 'balance-sheet', 'daybook', 'chart-of-accounts', 'partners', 'reports', 'settings',
   'notifications', 'user-management', 'clean-db', 'account-summary', 'profit-analysis', 'cash-flow-report',
 ]
 
 const isPageId = (value: string | null): value is PageId => Boolean(value && pageIds.includes(value as PageId))
+const superadminPages = new Set<PageId>(['user-management', 'clean-db'])
 
 function DataLoadingGate({ page, children }: { page: PageId; children: React.ReactNode }) {
   const { loading } = useLedgerData()
-  const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
-  if (loading && waitsForSharedData) return <PageSkeletonFor page={page} />
+  const loadedPage = useRef<PageId | null>(null)
+  const waitsForSharedData = ['journal', 'ledger', 'cashbook', 'bankbook', 'trial-balance', 'trading', 'profit-loss', 'balance-sheet', 'chart-of-accounts', 'partners', 'account-summary', 'profit-analysis', 'cash-flow-report'].includes(page)
+  if (!loading) loadedPage.current = page
+  // Only replace the page during its initial load. Keeping an already-rendered
+  // page mounted preserves pagination and form state during CRUD refreshes.
+  if (loading && waitsForSharedData && loadedPage.current !== page) return <PageSkeletonFor page={page} />
   return children
 }
 
 function AppShell() {
   const requestedPage = new URLSearchParams(window.location.search).get('page')
   const storedPage = window.localStorage.getItem('accounting.activePage')
-  const [activePage, setActivePage] = useState<PageId>(isPageId(requestedPage) ? requestedPage : isPageId(storedPage) ? storedPage : 'dashboard')
+  const [selectedPage, setSelectedPage] = useState<PageId>(isPageId(requestedPage) ? requestedPage : isPageId(storedPage) ? storedPage : 'dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { user, loading } = useAuth()
-  const navigate = (page: PageId) => {
-    setActivePage(page)
+  const { user, loading, canUseAI } = useAuth()
+  const activePage = user?.role !== 'superadmin' && superadminPages.has(selectedPage) ? 'dashboard' : selectedPage
+  const navigate = useCallback((page: PageId) => {
+    setSelectedPage(page)
     window.localStorage.setItem('accounting.activePage', page)
     const url = new URL(window.location.href)
     url.searchParams.set('page', page)
     if (page !== 'ledger') url.searchParams.delete('account')
     window.history.replaceState({}, '', url)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!loading && user && activePage !== selectedPage) navigate(activePage)
+  }, [activePage, loading, navigate, selectedPage, user])
 
   if (loading) {
     return <div className="app-loading"><Spinner size={20} /> Loading {appName}...</div>
@@ -92,6 +105,7 @@ function AppShell() {
     'balance-sheet': <BalanceSheet />,
     'daybook': <DayBook />,
     'chart-of-accounts': <ChartOfAccounts />,
+    'partners': <Settings partnersOnly />,
     'reports': <Reports onNavigate={navigate} />,
     'settings': <Settings />,
     'notifications': <NotificationCenter />,
@@ -103,6 +117,12 @@ function AppShell() {
   }
   return (
     <DataProvider activePage={activePage}>
+      {canUseAI && <AIChatDrawer onOpenSettings={() => {
+        const url = new URL(window.location.href)
+        url.searchParams.set('settingsTab', 'ai')
+        window.history.replaceState({}, '', url)
+        navigate('settings')
+      }} />}
       <LedgerQuickView />
       <Sidebar activePage={activePage} onNavigate={navigate} mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
       <Header activePage={activePage} onNavigate={navigate} onOpenMenu={() => setMobileMenuOpen(true)} />
@@ -116,10 +136,12 @@ function AppShell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ContentProvider><ToastProvider>
-        <SettingsProvider><AppShell /></SettingsProvider>
-      </ToastProvider></ContentProvider>
-    </AuthProvider>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <AIProvider><ContentProvider><ToastProvider>
+          <SettingsProvider><AppShell /></SettingsProvider>
+        </ToastProvider></ContentProvider></AIProvider>
+      </AuthProvider>
+    </AppErrorBoundary>
   )
 }

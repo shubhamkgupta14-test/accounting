@@ -35,6 +35,7 @@ export interface Account {
   opening_balance: number;
   balance?: number;
   is_active: boolean;
+  created_by?: string;
 }
 
 export interface JournalLine {
@@ -53,6 +54,7 @@ export interface JournalEntry {
   narration: string;
   entries: JournalLine[];
   status: "Draft" | "Posted";
+  created_by?: string;
 }
 
 export interface Voucher {
@@ -67,6 +69,7 @@ export interface Voucher {
   mode: string;
   status: "Pending" | "Approved" | "Rejected";
   narration: string;
+  created_by?: string;
 }
 
 export interface BookTransaction {
@@ -149,7 +152,7 @@ export interface FiscalSettings {
 }
 
 export interface ClosingPreviewEntry {
-  system_entry_type: "PROFIT_TRANSFER" | "DRAWINGS_TRANSFER" | "RETIREMENT_PROFIT_TRANSFER" | "RETIREMENT_DRAWINGS_TRANSFER";
+  system_entry_type: "PROFIT_TRANSFER" | "DRAWINGS_TRANSFER" | "RETIREMENT_PROFIT_TRANSFER" | "RETIREMENT_DRAWINGS_TRANSFER" | "RETIREMENT_CAPITAL_TO_LOAN";
   voucher_no: string;
   date: string;
   narration: string;
@@ -190,7 +193,7 @@ export interface AppSettings {
   partners: PartnerCapitalSettings[];
 }
 export interface ReportPeriod { start_date: string; end_date: string }
-export interface FinancialReportRow { code: string; name: string; group: string; amount: number; calculated?: boolean }
+export interface FinancialReportRow { code: string; name: string; type?: Account['type']; group: string; amount: number; calculated?: boolean }
 export interface TrialBalanceRow extends FinancialReportRow {
   type: Account['type']; opening_balance: number; period_movement: number; closing_balance: number; debit: number; credit: number
 }
@@ -207,6 +210,38 @@ export interface DatabaseExport {
   exported_at: string;
   data: Record<string, Record<string, unknown>[]>;
 }
+
+export type AIProvider = "grok" | "groq" | "gemini";
+export interface AIProviderConfiguration {
+  provider: AIProvider;
+  model: string;
+  expires_at: string;
+}
+export interface AIKeyStatus {
+  configured: boolean;
+  active_provider: AIProvider | null;
+  active_model: string | null;
+  configurations: AIProviderConfiguration[];
+}
+
+export interface AIChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AIChatResponse {
+  in_scope: boolean;
+  answer: string;
+  suggestions: string[];
+  provider: AIProvider;
+  model: string;
+}
+
+export type AIChatStreamEvent =
+  | { type: "start"; provider: AIProvider; model: string }
+  | { type: "delta"; delta: string }
+  | { type: "done"; response: AIChatResponse }
+  | { type: "error"; provider: AIProvider; code: string; message: string; retryable: boolean };
 
 export class ApiError extends Error {
   status: number;
@@ -420,10 +455,14 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   adminCollections: () => request<AdminCollection[]>("/admin/collections"),
-  cleanCollections: (collections: string[]) =>
+  cleanCollections: (collections: string[], password: string) =>
     request<{ deleted: Record<string, number> }>("/admin/clean", {
       method: "POST",
-      body: JSON.stringify({ collections }),
+      body: JSON.stringify({ collections, password }),
+    }),
+  createDefaultAccounts: () =>
+    request<{ created: number; existing: number; total: number }>("/admin/default-accounts", {
+      method: "POST",
     }),
   settings: () => request<AppSettings>("/settings"),
   updateCompanySettings: (payload: CompanySettings) =>
@@ -447,12 +486,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   confirmRetirementSettlement: (payload: RetirementSettlementRequest) =>
-    request<{ created: number; entries: ClosingPreviewEntry[]; loan_account: { name: string; code: string; type: 'Liability'; group: 'Current Liabilities' } }>("/settings/partners/retirement-confirm", {
+    request<{ created: number; entries: ClosingPreviewEntry[]; loan_account: { name: string; code: string; type: 'Liability'; group: 'Partner Loans' } }>("/settings/partners/retirement-confirm", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  updatePartnerRetirementDate: (accountName: string, retirementDate: string) =>
-    request<{ updated: number; entries: ClosingPreviewEntry[] }>("/settings/partners/retirement-date", {
+  updatePartnerRetirementDate: (accountName: string, retirementDate: string | null) =>
+    request<{ updated: number; entries: ClosingPreviewEntry[]; reactivated?: boolean }>("/settings/partners/retirement-date", {
       method: "PATCH",
       body: JSON.stringify({ account_name: accountName, retirement_date: retirementDate }),
     }),
@@ -462,4 +501,54 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   exportDatabase: () => request<DatabaseExport>("/settings/export"),
+  aiKeyStatus: () => request<AIKeyStatus>("/ai/session-key/status"),
+  connectAIKey: (provider: AIProvider, model: string, apiKey: string) => request<AIKeyStatus>("/ai/session-key", {
+    method: "POST",
+    body: JSON.stringify({ provider, model, api_key: apiKey }),
+  }),
+  activateAIProvider: (provider: AIProvider) => request<AIKeyStatus>("/ai/session-key/active", {
+    method: "PATCH",
+    body: JSON.stringify({ provider }),
+  }),
+  disconnectAIProvider: (provider: AIProvider) => request<AIKeyStatus>(`/ai/session-key/${provider}`, { method: "DELETE" }),
+  disconnectAllAIKeys: () => request<void>("/ai/session-key", { method: "DELETE" }),
+  aiChat: (message: string, history: AIChatHistoryMessage[]) => request<AIChatResponse>("/ai/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, history }),
+  }),
+  streamAIChat: async (
+    message: string,
+    history: AIChatHistoryMessage[],
+    provider: AIProvider | undefined,
+    signal: AbortSignal,
+    onEvent: (event: AIChatStreamEvent) => void,
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/ai/chat/stream`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+      body: JSON.stringify({ message, history, provider }),
+      signal,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new ApiError(formatApiError(body?.detail), response.status)
+    }
+    if (!response.body) throw new ApiError("Streaming is not supported by this browser.", 0)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() || ""
+      for (const line of lines) {
+        if (!line.trim()) continue
+        onEvent(JSON.parse(line) as AIChatStreamEvent)
+      }
+      if (done) break
+    }
+    if (buffer.trim()) onEvent(JSON.parse(buffer) as AIChatStreamEvent)
+  },
 };

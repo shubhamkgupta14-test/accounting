@@ -28,8 +28,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
-        payload = jwt.decode(token, settings.jwt_secret,
-                             algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[ALGORITHM],
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
+            options={"require": ["sub", "iat", "exp", "iss", "aud", "jti", "ver"]},
+        )
         user_id = payload.get("sub")
         logger.debug("Decoded auth token for user %s", user_id)
     except jwt.InvalidTokenError as exc:
@@ -70,3 +76,14 @@ def require_roles(*roles: str):
         return current_user
 
     return checker
+
+
+def require_owner_or_superadmin(current_user: dict, record: dict, resource: str) -> None:
+    """Allow superadmins to manage every record and admins to manage only their own."""
+    if current_user["role"] == "superadmin":
+        return
+    if str(record.get("created_by", "")) != str(current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Admins can only update or delete {resource} they created",
+        )

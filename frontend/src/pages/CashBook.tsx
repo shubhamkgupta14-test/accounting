@@ -5,6 +5,9 @@ import ExportMenu from '../components/ExportMenu'
 import PageIntro from '../components/PageIntro'
 import TablePagination from '../components/TablePagination'
 import { useAppSettings } from '../context/SettingsContext'
+import { formatReportNumber } from '../lib/export'
+import { paginationConfig } from '../config/app'
+import EmptyTableRow from '../components/EmptyTableRow'
 
 export default function CashBook() {
   const { cashTransactions } = useLedgerData()
@@ -14,7 +17,7 @@ export default function CashBook() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(paginationConfig.defaultPageSize)
 
   const financialYears = Array.from(new Set(cashTransactions.map(row => financialYearStart(row.date)))).sort((a, b) => b - a)
   const datedTransactions = cashTransactions.filter(row => inSelectedPeriod(row.date, dateFilter, dateFrom, dateTo))
@@ -117,23 +120,19 @@ export default function CashBook() {
                   <td><span className="narration-text">{r.particulars}</span></td>
                   <td><span className="mono" style={{ fontSize: 12.5, color: '#64748B' }}>{r.voucherNo}</span></td>
                   <td><span className={`badge ${r.type === 'Receipt' ? 'badge-green' : 'badge-red'}`}>{r.type}</span></td>
-                  <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? r.dr.toLocaleString('en-IN') : '-'}</td>
-                  <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? r.cr.toLocaleString('en-IN') : '-'}</td>
-                  <td className="num total-amount" style={{ fontWeight: 600 }}>{r.balance.toLocaleString('en-IN')}</td>
+                  <td className="num" style={{ color: r.dr ? '#059669' : '#CBD5E1' }}>{r.dr ? formatReportNumber(r.dr) : '-'}</td>
+                  <td className="num" style={{ color: r.cr ? '#DC2626' : '#CBD5E1' }}>{r.cr ? formatReportNumber(r.cr) : '-'}</td>
+                  <td className="num total-amount" style={{ fontWeight: 600 }}>{formatReportNumber(r.balance)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={7}><div className="empty-state" style={{ padding: '36px 20px' }}>No cash transactions yet.</div></td>
-                </tr>
-              )}
+              {filtered.length === 0 && <EmptyTableRow colSpan={7} />}
             </tbody>
             <tfoot>
               <tr className="totals-row">
                 <td colSpan={4} style={{ padding: '11px 16px', fontWeight: 700 }}>Closing Balance</td>
-                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#059669' }}>{totalDr.toLocaleString('en-IN')}</td>
-                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#DC2626' }}>{totalCr.toLocaleString('en-IN')}</td>
-                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#2563EB' }}>{closing.toLocaleString('en-IN')}</td>
+                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#059669' }}>{formatReportNumber(totalDr)}</td>
+                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#DC2626' }}>{formatReportNumber(totalCr)}</td>
+                <td className="num" style={{ padding: '11px 16px', fontWeight: 700, color: '#2563EB' }}>{formatReportNumber(closing)}</td>
               </tr>
             </tfoot>
           </table>

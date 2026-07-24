@@ -80,7 +80,7 @@ export function PageSkeletonFor({ page }: { page: string }) {
   if (page === 'daybook') return <DayBookSkeleton />
   if (page === 'chart-of-accounts') return <AccountsSkeleton />
   if (page === 'reports') return <ReportsSkeleton />
-  if (page === 'settings') return <SettingsSkeleton />
+  if (page === 'settings' || page === 'partners') return <SettingsSkeleton />
   if (page === 'clean-db') return <CleanDatabaseSkeleton />
   if (page === 'account-summary') return <AccountSummarySkeleton />
   if (page === 'profit-analysis' || page === 'cash-flow-report') return <ManagementReportSkeleton />

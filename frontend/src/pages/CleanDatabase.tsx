@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Database, Trash2 } from 'lucide-react'
+import { Database, PlusCircle, Trash2 } from 'lucide-react'
 import { api, type AdminCollection } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import PageIntro from '../components/PageIntro'
 import { CleanDatabaseSkeleton, Spinner } from '../components/Loading'
 import ConfirmModal from '../components/ConfirmModal'
+import PasswordInput from '../components/PasswordInput'
 
 export default function CleanDatabase() {
   const { showToast } = useToast()
@@ -13,6 +14,9 @@ export default function CleanDatabase() {
   const [cleaning, setCleaning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showConfirmation, setShowConfirmation] = useState(false)
+  const [password, setPassword] = useState('')
+  const [addingDefaults, setAddingDefaults] = useState(false)
+  const [showDefaultConfirmation, setShowDefaultConfirmation] = useState(false)
 
   useEffect(() => {
     api.adminCollections().then(rows => {
@@ -22,16 +26,37 @@ export default function CleanDatabase() {
   }, [])
 
   const clean = async () => {
-    setShowConfirmation(false)
     setCleaning(true)
     try {
-      const result = await api.cleanCollections(selected)
+      const result = await api.cleanCollections(selected, password)
+      setShowConfirmation(false)
+      setPassword('')
       showToast('success', `Cleaned ${Object.keys(result.deleted).length} collections.`)
       setSelected([])
       window.setTimeout(() => window.location.reload(), 500)
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Unable to clean database.')
       setCleaning(false)
+    }
+  }
+
+  const addDefaultAccounts = async () => {
+    setAddingDefaults(true)
+    try {
+      const result = await api.createDefaultAccounts()
+      setShowDefaultConfirmation(false)
+      showToast(
+        'success',
+        result.created > 0
+          ? `Created ${result.created} default ledger ${result.created === 1 ? 'account' : 'accounts'}.`
+          : 'Default ledger accounts already exist.',
+      )
+      const rows = await api.adminCollections()
+      setCollections(rows)
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Unable to add default accounts.')
+    } finally {
+      setAddingDefaults(false)
     }
   }
 
@@ -43,16 +68,48 @@ export default function CleanDatabase() {
   return (
     <div>
       <ConfirmModal
+        open={showDefaultConfirmation}
+        title="Add default ledger accounts?"
+        message="This will create the essential proprietorship and partnership ledger accounts that do not already exist. Existing accounts will not be duplicated or changed."
+        confirmLabel={addingDefaults ? 'Adding…' : 'Add Default Accounts'}
+        confirmDisabled={addingDefaults}
+        onCancel={() => { if (!addingDefaults) setShowDefaultConfirmation(false) }}
+        onConfirm={() => void addDefaultAccounts()}
+      />
+      <ConfirmModal
         open={showConfirmation}
         title="Clean selected database data?"
         message={`${selected.length} database ${selected.length === 1 ? 'collection is' : 'collections are'} selected, containing ${selectedDocumentCount.toLocaleString('en-IN')} ${selectedDocumentCount === 1 ? 'record' : 'records'}. This data will be permanently deleted.`}
         confirmLabel={`Delete ${selectedDocumentCount.toLocaleString('en-IN')} records`}
         danger
-        onCancel={() => setShowConfirmation(false)}
+        confirmDisabled={!password || cleaning}
+        onCancel={() => { setShowConfirmation(false); setPassword('') }}
         onConfirm={() => void clean()}
-      />
+      >
+        <div style={{ padding: '0 20px 16px' }}>
+          <label className="form-label required" htmlFor="clean-database-password">Confirm your password</label>
+          <PasswordInput
+            id="clean-database-password"
+            className="input"
+            value={password}
+            autoComplete="current-password"
+            onChange={event => setPassword(event.target.value)}
+          />
+        </div>
+      </ConfirmModal>
       <div className="page-header">
         <PageIntro id="clean-db" />
+      </div>
+      <div className="card" style={{ padding: 20, marginBottom: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
+        <div>
+          <h2 style={{ margin: '0 0 6px', fontSize: 16 }}>Add Default Accounts</h2>
+          <p style={{ margin: 0, color: '#64748B', fontSize: 13 }}>
+            Create the essential ledger set for a clean database using the standard seed mapping.
+          </p>
+        </div>
+        <button className="btn btn-primary" disabled={addingDefaults} onClick={() => setShowDefaultConfirmation(true)}>
+          {addingDefaults ? <Spinner /> : <PlusCircle size={14} />} {addingDefaults ? 'Adding…' : 'Add Default Accounts'}
+        </button>
       </div>
       <div className="card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -62,7 +119,7 @@ export default function CleanDatabase() {
           <button className="btn btn-secondary" onClick={() => setSelected(allSelected ? [] : collections.map(row => row.name))}>
             {allSelected ? 'Deselect All' : 'Select All'}
           </button>
-          <button className="btn btn-danger" disabled={selected.length === 0 || cleaning} onClick={() => setShowConfirmation(true)}>
+          <button className="btn btn-danger" disabled={selected.length === 0 || cleaning} onClick={() => { setPassword(''); setShowConfirmation(true) }}>
             {cleaning ? <Spinner /> : <Trash2 size={14} />} {cleaning ? 'Cleaning…' : 'Run Clean Action'}
           </button>
         </div>
