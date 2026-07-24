@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError, type AIChatHistoryMessage, type AIKeyStatus, type AIProvider, type AIProviderConfiguration } from '../lib/api'
 import { useAuth } from './AuthContext'
 
@@ -25,7 +25,11 @@ export interface AIMessage {
   role: 'user' | 'assistant'
   content: string
   suggestions?: string[]
+  provider?: AIProvider
+  status?: 'streaming' | 'stopped' | 'error'
 }
+
+export interface AIChatError { message: string; code: string; provider?: AIProvider; retryable: boolean }
 
 interface AIContextValue {
   configured: boolean
@@ -37,6 +41,7 @@ interface AIContextValue {
   chatOpen: boolean
   messages: AIMessage[]
   sending: boolean
+  streamError: AIChatError | null
   connect: (provider: AIProvider, model: string, apiKey: string) => Promise<void>
   activate: (provider: AIProvider) => Promise<void>
   disconnect: (provider: AIProvider) => Promise<void>
@@ -44,6 +49,8 @@ interface AIContextValue {
   closeChat: () => void
   clearChat: () => void
   sendMessage: (message: string) => Promise<void>
+  stopGenerating: () => void
+  retryLast: (provider?: AIProvider) => Promise<void>
 }
 
 const AIContext = createContext<AIContextValue | null>(null)
@@ -66,7 +73,7 @@ function readStoredMessages(userId: string | number): AIMessage[] {
         && typeof candidate.content === 'string'
         && (candidate.suggestions === undefined
           || (Array.isArray(candidate.suggestions) && candidate.suggestions.every(value => typeof value === 'string')))
-    }))
+    }).map(item => item.status === 'streaming' ? { ...item, status: 'stopped' as const } : item))
   } catch {
     return []
   }
@@ -94,6 +101,12 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [historyUserId, setHistoryUserId] = useState<string | number | null>(null)
   const [sending, setSending] = useState(false)
+  const [streamError, setStreamError] = useState<AIChatError | null>(null)
+  const messagesRef = useRef<AIMessage[]>([])
+  const controllerRef = useRef<AbortController | null>(null)
+  const lastRequestRef = useRef<{ content: string; userMessageId: string; provider?: AIProvider } | null>(null)
+
+  useEffect(() => { messagesRef.current = messages }, [messages])
 
   const applyStatus = useCallback((status: AIKeyStatus) => {
     setConfigured(status.configured)
@@ -163,34 +176,90 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
     if (!status.configured) setMessages([])
   }, [applyStatus])
 
-  const sendMessage = useCallback(async (rawMessage: string) => {
+  const runMessage = useCallback(async (rawMessage: string, provider?: AIProvider, retry = false) => {
     const content = rawMessage.trim()
-    if (!content || sending) return
-    const userMessage: AIMessage = { id: messageId(), role: 'user', content }
-    const history: AIChatHistoryMessage[] = messages
+    if (!content || controllerRef.current) return
+    const current = messagesRef.current
+    let userMessage: AIMessage
+    let baseMessages: AIMessage[]
+    if (retry && lastRequestRef.current) {
+      const index = current.findIndex(item => item.id === lastRequestRef.current?.userMessageId)
+      if (index < 0) return
+      userMessage = current[index]
+      baseMessages = current.slice(0, index + 1)
+    } else {
+      userMessage = { id: messageId(), role: 'user', content }
+      baseMessages = [...current, userMessage]
+    }
+    const history: AIChatHistoryMessage[] = baseMessages
+      .slice(0, -1)
       .slice(-(CONTEXT_MESSAGE_LIMIT - 1))
       .map(message => ({ role: message.role, content: message.content }))
-    setMessages(current => trimMessages([...current, userMessage]))
+    const assistantId = messageId()
+    const placeholder: AIMessage = { id: assistantId, role: 'assistant', content: '', status: 'streaming', provider }
+    lastRequestRef.current = { content, userMessageId: userMessage.id, provider }
+    setMessages(trimMessages([...baseMessages, placeholder]))
+    setStreamError(null)
     setSending(true)
+    const controller = new AbortController()
+    controllerRef.current = controller
+    let terminalEvent = false
+    let invalidKeyReported = false
     try {
-      const result = await api.aiChat(content, history)
-      const assistantMessage: AIMessage = {
-        id: messageId(),
-        role: 'assistant',
-        content: result.answer,
-        suggestions: result.suggestions.slice(0, 5),
+      await api.streamAIChat(content, history, provider, controller.signal, event => {
+        if (event.type === 'start') {
+          lastRequestRef.current = { content, userMessageId: userMessage.id, provider: event.provider }
+          setMessages(items => items.map(item => item.id === assistantId ? { ...item, provider: event.provider } : item))
+        } else if (event.type === 'delta') {
+          setMessages(items => items.map(item => item.id === assistantId
+            ? { ...item, content: item.content + event.delta }
+            : item))
+        } else if (event.type === 'done') {
+          terminalEvent = true
+          setMessages(items => items.map(item => item.id === assistantId ? {
+            ...item, content: event.response.answer, suggestions: event.response.suggestions.slice(0, 5),
+            provider: event.response.provider, status: undefined,
+          } : item))
+        } else if (event.type === 'error') {
+          terminalEvent = true
+          invalidKeyReported = event.code === 'invalid_key'
+          setStreamError({ message: event.message, code: event.code, provider: event.provider, retryable: event.retryable })
+          setMessages(items => items.map(item => item.id === assistantId ? { ...item, status: 'error' } : item))
+        }
+      })
+      if (!terminalEvent) throw new ApiError('The provider response ended unexpectedly. Please retry.', 502)
+      if (invalidKeyReported) {
+        try { applyStatus(await api.aiKeyStatus()) }
+        catch { /* Keep the current status until the next status refresh. */ }
       }
-      setMessages(current => trimMessages([...current, assistantMessage]))
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setMessages(items => items.map(item => item.id === assistantId ? { ...item, status: 'stopped' } : item))
+        return
+      }
+      setStreamError({
+        message: error instanceof Error ? error.message : 'Unable to reach the AI provider.',
+        code: error instanceof ApiError ? `http_${error.status}` : 'connection_error', retryable: true,
+        provider,
+      })
+      setMessages(items => items.map(item => item.id === assistantId ? { ...item, status: 'error' } : item))
       if (error instanceof ApiError && (error.status === 409 || error.status === 428)) {
         try { applyStatus(await api.aiKeyStatus()) }
         catch { applyStatus({ configured: false, active_provider: null, active_model: null, configurations: [] }) }
       }
-      throw error
     } finally {
+      controllerRef.current = null
       setSending(false)
     }
-  }, [applyStatus, messages, sending])
+  }, [applyStatus])
+
+  const sendMessage = useCallback((message: string) => runMessage(message), [runMessage])
+  const retryLast = useCallback(async (provider?: AIProvider) => {
+    const last = lastRequestRef.current
+    if (!last) return
+    await runMessage(last.content, provider ?? last.provider, true)
+  }, [runMessage])
+  const stopGenerating = useCallback(() => controllerRef.current?.abort(), [])
 
   const value = useMemo<AIContextValue>(() => ({
     configured,
@@ -202,6 +271,7 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
     chatOpen,
     messages,
     sending,
+    streamError,
     connect,
     activate,
     disconnect,
@@ -210,9 +280,13 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
     clearChat: () => {
       if (user) storeMessages(user.id, [])
       setMessages([])
+      setStreamError(null)
+      lastRequestRef.current = null
     },
     sendMessage,
-  }), [activeModel, activeProvider, activate, chatOpen, checking, configurations, configured, connect, disconnect, expiresAt, messages, sendMessage, sending, user])
+    stopGenerating,
+    retryLast,
+  }), [activeModel, activeProvider, activate, chatOpen, checking, configurations, configured, connect, disconnect, expiresAt, messages, retryLast, sendMessage, sending, stopGenerating, streamError, user])
 
   return <AIContext.Provider value={value}>{children}</AIContext.Provider>
 }

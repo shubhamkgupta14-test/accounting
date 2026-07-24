@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import { Bot, Eraser, Send, Settings, X } from 'lucide-react'
+import { Bot, Check, Copy, Eraser, RefreshCw, Send, Settings, Square, X } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAI } from '../context/AIContext'
@@ -11,6 +11,7 @@ export function AIResponseMarkdown({ content }: { content: string }) {
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+          table: ({ node: _node, ...props }) => <div className="ai-markdown-table-wrap"><table {...props} /></div>,
         }}
       >
         {content}
@@ -19,14 +20,49 @@ export function AIResponseMarkdown({ content }: { content: string }) {
   )
 }
 
+async function writeToClipboard(content: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(content)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = content
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('Clipboard copy failed')
+}
+
 export default function AIChatDrawer({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const { chatOpen, closeChat, configured, activeProvider, activeModel, messages, sending, sendMessage, clearChat } = useAI()
+  const {
+    chatOpen, closeChat, configured, activeProvider, activeModel, configurations,
+    messages, sending, streamError, sendMessage, stopGenerating, retryLast, clearChat,
+  } = useAI()
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const copyTimerRef = useRef<number | null>(null)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, sending])
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
+  }, [])
   if (!chatOpen) return null
+
+  const copyMessage = async (id: string, content: string) => {
+    try {
+      await writeToClipboard(content)
+      setCopiedMessageId(id)
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = window.setTimeout(() => setCopiedMessageId(null), 1600)
+    } catch {
+      setError('Unable to copy this message. Please allow clipboard access and try again.')
+    }
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -34,9 +70,13 @@ export default function AIChatDrawer({ onOpenSettings }: { onOpenSettings: () =>
     if (!next || sending) return
     setMessage('')
     setError('')
-    try { await sendMessage(next) }
-    catch (err) { setError(err instanceof Error ? err.message : 'Unable to reach Grok.') }
+    await sendMessage(next)
   }
+
+  const lastAssistantId = [...messages].reverse().find(item => item.role === 'assistant')?.id
+  const retryProvider = streamError?.provider || messages.find(item => item.id === lastAssistantId)?.provider || activeProvider
+  const alternateProviders = configurations.filter(item => item.provider !== retryProvider)
+  const providerName = (provider?: string | null) => provider === 'grok' ? 'Grok' : provider === 'groq' ? 'Groq' : provider === 'gemini' ? 'Gemini' : 'provider'
 
   return (
     <aside className="ai-chat-drawer" role="dialog" aria-modal="true" aria-label="Accounting AI assistant">
@@ -73,16 +113,52 @@ export default function AIChatDrawer({ onOpenSettings }: { onOpenSettings: () =>
             )}
             {messages.map(item => (
               <div key={item.id} className={`ai-message ai-message-${item.role}`}>
-                {item.role === 'assistant'
+                {item.role === 'assistant' && !item.content && item.status === 'streaming'
+                  ? <div className="ai-thinking">{providerName(item.provider)} is preparing an accounting reply...</div>
+                  : item.role === 'assistant'
                   ? <AIResponseMarkdown content={item.content} />
                   : <div>{item.content}</div>}
                 {item.suggestions && item.suggestions.length > 0 && (
                   <ol>{item.suggestions.slice(0, 5).map((suggestion, index) => <li key={`${item.id}-${index}`}>{suggestion}</li>)}</ol>
                 )}
+                <button
+                  className="ai-message-copy"
+                  type="button"
+                  aria-label={copiedMessageId === item.id ? 'Message copied' : 'Copy message'}
+                  title={copiedMessageId === item.id ? 'Copied' : 'Copy message'}
+                  onClick={() => copyMessage(item.id, item.content)}
+                >
+                  {copiedMessageId === item.id ? <Check size={13} /> : <Copy size={13} />}
+                </button>
+                {item.role === 'assistant' && item.id === lastAssistantId && !sending && (
+                  <button className="ai-message-retry" type="button" onClick={() => retryLast()} title="Retry response">
+                    <RefreshCw size={12} /> Retry
+                  </button>
+                )}
+                {item.status === 'stopped' && <small className="ai-message-status">Generation stopped</small>}
+                {item.status === 'error' && item.content && <small className="ai-message-status">Response interrupted</small>}
               </div>
             ))}
-            {sending && <div className="ai-message ai-message-assistant ai-thinking">Grok is preparing an accounting reply...</div>}
-            {error && <div className="ai-chat-error">{error}</div>}
+            {(error || streamError) && (
+              <div className="ai-chat-error" role="alert">
+                <strong>{streamError?.code === 'rate_limit' ? 'Provider limit reached' : 'AI response failed'}</strong>
+                <span>{error || streamError?.message}</span>
+                {(streamError?.retryable || alternateProviders.length > 0) && !sending && (
+                  <div className="ai-chat-retry-actions">
+                    {streamError?.retryable && (
+                      <button className="btn btn-secondary btn-sm" type="button" onClick={() => retryLast()}>
+                        <RefreshCw size={13} /> Retry with {providerName(retryProvider)}
+                      </button>
+                    )}
+                    {alternateProviders.map(item => (
+                      <button className="btn btn-secondary btn-sm" type="button" key={item.provider} onClick={() => retryLast(item.provider)}>
+                        Retry with {providerName(item.provider)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div ref={endRef} />
           </div>
           <form className="ai-chat-composer" onSubmit={submit}>
@@ -100,7 +176,9 @@ export default function AIChatDrawer({ onOpenSettings }: { onOpenSettings: () =>
                 }
               }}
             />
-            <button className="btn btn-primary btn-icon" type="submit" aria-label="Send question" disabled={!message.trim() || sending}><Send size={16} /></button>
+            {sending
+              ? <button className="btn btn-danger btn-icon" type="button" aria-label="Stop generating" title="Stop generating" onClick={stopGenerating}><Square size={14} fill="currentColor" /></button>
+              : <button className="btn btn-primary btn-icon" type="submit" aria-label="Send question" disabled={!message.trim()}><Send size={16} /></button>}
             <small>Accounting guidance only. Maximum five suggestions.</small>
           </form>
         </>

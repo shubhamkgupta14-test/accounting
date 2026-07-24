@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -79,9 +80,18 @@ AI_PROVIDER_MODELS: dict[str, tuple[str, ...]] = {
 
 
 class XAIError(Exception):
-    def __init__(self, message: str, *, invalid_key: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        invalid_key: bool = False,
+        code: str = "provider_error",
+        retryable: bool = True,
+    ) -> None:
         super().__init__(message)
         self.invalid_key = invalid_key
+        self.code = "invalid_key" if invalid_key else code
+        self.retryable = False if invalid_key else retryable
 
 
 def local_scope_allows(message: str, history: list[dict[str, str]]) -> bool:
@@ -240,6 +250,165 @@ async def request_provider_reply(
     if provider == "groq":
         return await _request_groq_reply(api_key, model, message, history)
     return await _request_gemini_reply(api_key, model, message, history)
+
+
+async def stream_provider_reply(
+    provider: str,
+    model: str,
+    api_key: str,
+    message: str,
+    history: list[dict[str, str]],
+) -> AsyncIterator[str]:
+    """Yield the provider's structured JSON text as it is generated."""
+    _assert_supported_configuration(provider, model)
+    if provider == "grok":
+        messages = [{"role": "system", "content": SYSTEM_INSTRUCTIONS}, *history]
+        messages.append({"role": "user", "content": message})
+        payload = {
+            "model": model,
+            "input": messages,
+            "store": False,
+            "stream": True,
+            "max_output_tokens": 700,
+            "text": {"format": {
+                "type": "json_schema", "name": "accounting_chat_response",
+                "schema": RESPONSE_SCHEMA, "strict": True,
+            }},
+        }
+        async for delta in _stream_sse(
+            settings.xai_base_url, "/responses",
+            {"Authorization": f"Bearer {api_key}"}, payload, "Grok", "grok",
+        ):
+            yield delta
+        return
+
+    if provider == "groq":
+        messages = [{"role": "system", "content": SYSTEM_INSTRUCTIONS}, *history]
+        messages.append({"role": "user", "content": message})
+        if model.startswith("openai/gpt-oss-"):
+            response_format: dict[str, Any] = {"type": "json_schema", "json_schema": {
+                "name": "accounting_chat_response", "strict": True, "schema": RESPONSE_SCHEMA,
+            }}
+        else:
+            response_format = {"type": "json_object"}
+            messages[0]["content"] += "\nReturn only a JSON object matching the required response schema."
+        payload = {
+            "model": model, "messages": messages, "stream": True,
+            "max_completion_tokens": 700, "response_format": response_format,
+        }
+        async for delta in _stream_sse(
+            settings.groq_base_url, "/chat/completions",
+            {"Authorization": f"Bearer {api_key}"}, payload, "Groq", "groq",
+        ):
+            yield delta
+        return
+
+    contents = [{
+        "role": "model" if item["role"] == "assistant" else "user",
+        "parts": [{"text": item["content"]}],
+    } for item in history]
+    contents.append({"role": "user", "parts": [{"text": message}]})
+    payload = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTIONS}]},
+        "contents": contents,
+        "generationConfig": {
+            "maxOutputTokens": 700, "responseMimeType": "application/json",
+            "responseJsonSchema": RESPONSE_SCHEMA,
+        },
+    }
+    async for delta in _stream_sse(
+        settings.gemini_base_url, f"/models/{model}:streamGenerateContent?alt=sse",
+        {"x-goog-api-key": api_key}, payload, "Gemini", "gemini",
+    ):
+        yield delta
+
+
+async def _stream_sse(
+    base_url: str,
+    path: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    provider_label: str,
+    event_kind: str,
+) -> AsyncIterator[str]:
+    try:
+        async with httpx.AsyncClient(base_url=base_url, timeout=settings.xai_timeout_seconds) as client:
+            async with client.stream("POST", path, headers=headers, json=payload) as response:
+                _raise_provider_status(response.status_code, provider_label)
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if not data or data == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(data)
+                        if event_kind == "grok" and event.get("type") == "response.output_text.delta":
+                            delta = event.get("delta", "")
+                        elif event_kind == "groq":
+                            delta = event.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                        elif event_kind == "gemini":
+                            parts = event.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                            delta = "".join(part.get("text", "") for part in parts)
+                        else:
+                            delta = ""
+                    except (ValueError, TypeError, KeyError, IndexError):
+                        continue
+                    if isinstance(delta, str) and delta:
+                        yield delta
+    except XAIError:
+        raise
+    except httpx.TimeoutException as exc:
+        raise XAIError(
+            f"{provider_label} took too long to respond. Retry now or use another configured provider.",
+            code="timeout",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise XAIError(
+            f"Could not connect to {provider_label}. Check your connection or retry with another provider.",
+            code="connection_error",
+        ) from exc
+
+
+def validate_streamed_reply(raw_text: str, provider_label: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(raw_text)
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise XAIError(
+            f"{provider_label} returned an incomplete response. Please retry.",
+            code="invalid_response",
+        ) from exc
+    return _validated_reply(parsed, provider_label)
+
+
+def streamed_output_allows(answer: str) -> bool:
+    """Apply the local output boundary before streamed text reaches the client."""
+    return not _contains_prohibited_output(answer)
+
+
+def _raise_provider_status(status_code: int, provider_label: str) -> None:
+    if status_code in {401, 403} or (provider_label == "Gemini" and status_code == 400):
+        raise XAIError(
+            f"The {provider_label} API key is invalid or expired. Add a valid key in Settings.",
+            invalid_key=True,
+        )
+    if status_code == 400:
+        raise XAIError(
+            f"{provider_label} rejected the selected model or request. Check the model in Settings.",
+            code="bad_request", retryable=False,
+        )
+    if status_code == 429:
+        raise XAIError(
+            f"{provider_label} rate limit or quota has been reached. Wait and retry, or use another configured provider.",
+            code="rate_limit",
+        )
+    if status_code >= 500:
+        raise XAIError(
+            f"{provider_label} is temporarily unavailable. Retry shortly or use another configured provider.",
+            code="provider_unavailable",
+        )
+    if status_code >= 400:
+        raise XAIError(f"{provider_label} could not answer this request.", code="provider_error")
 
 
 async def _request_groq_reply(

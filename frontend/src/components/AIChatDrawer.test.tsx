@@ -13,6 +13,7 @@ describe('AIResponseMarkdown', () => {
     expect(screen.getByRole('heading', { name: 'Journal entry' })).toBeInTheDocument()
     expect(screen.getByRole('list')).toBeInTheDocument()
     expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('table').parentElement).toHaveClass('ai-markdown-table-wrap')
     expect(screen.getByText('<a href="javascript:alert(1)">unsafe</a>')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'unsafe' })).not.toBeInTheDocument()
   })

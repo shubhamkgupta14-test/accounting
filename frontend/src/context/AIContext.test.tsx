@@ -19,7 +19,12 @@ describe('AI session context', () => {
       configurations: [{ provider: 'grok', model: 'grok-4.3', expires_at: '2030-01-01T00:00:00Z' }],
     })
     vi.spyOn(api, 'disconnectAIProvider').mockResolvedValue({ configured: false, active_provider: null, active_model: null, configurations: [] })
-    vi.spyOn(api, 'aiChat').mockResolvedValue({ in_scope: true, answer: 'Accounting reply', suggestions: [], provider: 'grok', model: 'grok-4.3' })
+    vi.spyOn(api, 'streamAIChat').mockImplementation(async (_message, _history, provider, _signal, onEvent) => {
+      onEvent({ type: 'start', provider: provider || 'grok', model: 'grok-4.3' })
+      onEvent({ type: 'delta', delta: 'Accounting ' })
+      onEvent({ type: 'delta', delta: 'reply' })
+      onEvent({ type: 'done', response: { in_scope: true, answer: 'Accounting reply', suggestions: [], provider: provider || 'grok', model: 'grok-4.3' } })
+    })
   })
 
   it('keeps at most 50 displayed messages and sends only 12-message context', async () => {
@@ -41,7 +46,7 @@ describe('AI session context', () => {
     }
 
     expect(current!.messages).toHaveLength(50)
-    const lastCall = vi.mocked(api.aiChat).mock.calls.at(-1)
+    const lastCall = vi.mocked(api.streamAIChat).mock.calls.at(-1)
     expect(lastCall?.[1]).toHaveLength(11)
     expect(lastCall?.[0]).toBe('Accounting question 26')
   })

@@ -1,7 +1,11 @@
+import asyncio
+import json
+import re
 from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from app.ai_service import (
@@ -10,6 +14,9 @@ from app.ai_service import (
     XAIError,
     local_scope_allows,
     request_provider_reply,
+    stream_provider_reply,
+    streamed_output_allows,
+    validate_streamed_reply,
     validate_provider_key,
 )
 from app.core.config import settings
@@ -60,6 +67,7 @@ class ChatHistoryMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=settings.ai_max_message_chars)
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=settings.ai_max_history_messages)
+    provider: AIProvider | None = None
 
     @field_validator("message")
     @classmethod
@@ -140,7 +148,7 @@ async def remove_all_session_keys(request: Request, _=Depends(get_current_user))
 async def chat(payload: ChatRequest, request: Request, current_user=Depends(get_current_user)):
     history = _bounded_history([item.model_dump() for item in payload.history])
     session_id = request_session_id(request)
-    stored = ai_session_keys.get_active(session_id, current_user["id"])
+    stored = _get_chat_provider(session_id, current_user["id"], payload.provider)
     if not stored:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -163,6 +171,121 @@ async def chat(payload: ChatRequest, request: Request, current_user=Depends(get_
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {**result, "provider": provider, "model": model}
+
+
+@router.post("/chat/stream")
+async def stream_chat(payload: ChatRequest, request: Request, current_user=Depends(get_current_user)):
+    history = _bounded_history([item.model_dump() for item in payload.history])
+    session_id = request_session_id(request)
+    stored = _get_chat_provider(session_id, current_user["id"], payload.provider)
+    if not stored:
+        detail = (
+            f"{payload.provider.title()} is not configured for this session. Add its API key in Settings."
+            if payload.provider else "Add an AI provider API key in Settings for this session."
+        )
+        raise HTTPException(status_code=status.HTTP_428_PRECONDITION_REQUIRED, detail=detail)
+    provider, model, api_key, _ = stored
+
+    async def events():
+        yield _stream_event({"type": "start", "provider": provider, "model": model})
+        if not local_scope_allows(payload.message, history):
+            yield _stream_event({
+                "type": "done",
+                "response": {
+                    "in_scope": False, "answer": ACCOUNTING_REFUSAL, "suggestions": [],
+                    "provider": provider, "model": model,
+                },
+            })
+            return
+
+        raw = ""
+        emitted = ""
+        try:
+            async for chunk in stream_provider_reply(
+                provider, model, api_key, payload.message, history
+            ):
+                raw += chunk
+                visible = _partial_answer(raw)
+                if visible and not streamed_output_allows(visible):
+                    yield _stream_event({
+                        "type": "done",
+                        "response": {
+                            "in_scope": False, "answer": ACCOUNTING_REFUSAL,
+                            "suggestions": [], "provider": provider, "model": model,
+                        },
+                    })
+                    return
+                # Retain a small tail so a prohibited phrase spanning provider
+                # chunks can be rejected before any part of that phrase is sent.
+                safe_visible = visible[:-24] if len(visible) > 24 else ""
+                if safe_visible.startswith(emitted) and len(safe_visible) > len(emitted):
+                    delta = safe_visible[len(emitted):]
+                    emitted = safe_visible
+                    yield _stream_event({"type": "delta", "delta": delta})
+            result = validate_streamed_reply(raw, provider.title())
+            yield _stream_event({
+                "type": "done",
+                "response": {**result, "provider": provider, "model": model},
+            })
+        except asyncio.CancelledError:
+            raise
+        except XAIError as exc:
+            if exc.invalid_key:
+                ai_session_keys.remove_provider(session_id, current_user["id"], provider)
+            yield _stream_event({
+                "type": "error", "provider": provider, "code": exc.code,
+                "message": str(exc), "retryable": exc.retryable,
+            })
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
+def _get_chat_provider(session_id: str, user_id: str, provider: AIProvider | None):
+    if provider:
+        return ai_session_keys.get_provider(session_id, user_id, provider)
+    return ai_session_keys.get_active(session_id, user_id)
+
+
+def _stream_event(event: dict) -> str:
+    return json.dumps(event, separators=(",", ":")) + "\n"
+
+
+def _partial_answer(raw: str) -> str:
+    """Decode the complete portion of the answer JSON string for safe rendering."""
+    match = re.search(r'"answer"\s*:\s*"', raw)
+    if not match:
+        return ""
+    source = raw[match.end():]
+    result: list[str] = []
+    index = 0
+    escapes = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+    while index < len(source):
+        char = source[index]
+        if char == '"':
+            break
+        if char != "\\":
+            result.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(source):
+            break
+        escaped = source[index + 1]
+        if escaped == "u":
+            digits = source[index + 2:index + 6]
+            if len(digits) < 4 or not all(value in "0123456789abcdefABCDEF" for value in digits):
+                break
+            result.append(chr(int(digits, 16)))
+            index += 6
+            continue
+        if escaped not in escapes:
+            break
+        result.append(escapes[escaped])
+        index += 2
+    return "".join(result)
 
 
 def _session_status(request: Request, user_id: str) -> dict:

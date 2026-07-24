@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from app.ai_service import ACCOUNTING_REFUSAL, local_scope_allows, request_accounting_reply, request_provider_reply
+from app.ai_service import ACCOUNTING_REFUSAL, XAIError, local_scope_allows, request_accounting_reply, request_provider_reply
 from app.core.multi_ai_sessions import ai_session_keys
 
 
@@ -121,6 +121,59 @@ def test_multiple_providers_can_be_configured_and_selected(client, login, monkey
     removed = client.delete("/api/ai/session-key/grok")
     assert removed.status_code == 200
     assert removed.json()["active_provider"] == "groq"
+
+
+def test_stream_chat_emits_answer_deltas_and_supports_provider_override(client, login, monkeypatch):
+    async def validate(_provider, _model, _api_key):
+        return None
+
+    async def stream(provider, model, api_key, message, history):
+        assert (provider, model, api_key) == ("grok", "grok-4.3", "xai-session-test-key")
+        assert message == "How is rent paid by bank recorded?"
+        yield '{"in_scope":true,"answer":"Debit Rent '
+        yield 'Expense and credit Bank.","suggestions":["Review the bank voucher"]}'
+
+    monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
+    monkeypatch.setattr("app.routes.multi_ai.stream_provider_reply", stream)
+    ai_session_keys.clear()
+    login()
+    client.post("/api/ai/session-key", json={"provider": "grok", "model": "grok-4.3", "api_key": "xai-session-test-key"})
+    client.post("/api/ai/session-key", json={"provider": "groq", "model": "openai/gpt-oss-20b", "api_key": "gsk-session-test-key"})
+
+    response = client.post("/api/ai/chat/stream", json={
+        "message": "How is rent paid by bank recorded?", "provider": "grok", "history": [],
+    })
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert response.status_code == 200
+    assert events[0] == {"type": "start", "provider": "grok", "model": "grok-4.3"}
+    streamed = "".join(item["delta"] for item in events if item["type"] == "delta")
+    assert streamed
+    assert events[-1]["response"]["answer"].startswith(streamed)
+    assert events[-1]["response"]["suggestions"] == ["Review the bank voucher"]
+    assert client.get("/api/ai/session-key/status").json()["active_provider"] == "groq"
+
+
+def test_stream_chat_returns_clear_rate_limit_event(client, login, monkeypatch):
+    async def validate(_provider, _model, _api_key):
+        return None
+
+    async def stream(*_args, **_kwargs):
+        if False:
+            yield ""
+        raise XAIError("Groq rate limit reached. Retry later.", code="rate_limit")
+
+    monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
+    monkeypatch.setattr("app.routes.multi_ai.stream_provider_reply", stream)
+    ai_session_keys.clear()
+    login()
+    client.post("/api/ai/session-key", json={"provider": "groq", "model": "openai/gpt-oss-20b", "api_key": "gsk-session-test-key"})
+
+    response = client.post("/api/ai/chat/stream", json={"message": "Explain depreciation", "history": []})
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[-1] == {
+        "type": "error", "provider": "groq", "code": "rate_limit",
+        "message": "Groq rate limit reached. Retry later.", "retryable": True,
+    }
 
 
 def test_scope_gate_allows_accounting_follow_up_and_blocks_prompt_injection():

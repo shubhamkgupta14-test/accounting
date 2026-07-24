@@ -73,6 +73,21 @@ class MultiAISessionKeyVault:
             entry.idle_expires_at = min(now + idle_ttl, entry.absolute_expires_at)
             return provider, entry.model, entry.api_key, datetime.fromtimestamp(entry.idle_expires_at, UTC)
 
+    def get_provider(self, session_id: str, user_id: str, provider: str) -> tuple[str, str, str, datetime] | None:
+        """Return one configured provider without changing the active provider."""
+        now = time.time()
+        with self._lock:
+            self._purge_expired_locked(now)
+            session = self._sessions.get(session_id)
+            if not session or session.user_id != user_id:
+                return None
+            entry = session.providers.get(provider)
+            if not entry:
+                return None
+            idle_ttl = max(60, settings.ai_key_idle_minutes * 60)
+            entry.idle_expires_at = min(now + idle_ttl, entry.absolute_expires_at)
+            return provider, entry.model, entry.api_key, datetime.fromtimestamp(entry.idle_expires_at, UTC)
+
     def status(self, session_id: str, user_id: str) -> dict:
         now = time.time()
         with self._lock:

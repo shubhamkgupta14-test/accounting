@@ -234,6 +234,12 @@ export interface AIChatResponse {
   model: string;
 }
 
+export type AIChatStreamEvent =
+  | { type: "start"; provider: AIProvider; model: string }
+  | { type: "delta"; delta: string }
+  | { type: "done"; response: AIChatResponse }
+  | { type: "error"; provider: AIProvider; code: string; message: string; retryable: boolean };
+
 export class ApiError extends Error {
   status: number;
 
@@ -507,4 +513,39 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ message, history }),
   }),
+  streamAIChat: async (
+    message: string,
+    history: AIChatHistoryMessage[],
+    provider: AIProvider | undefined,
+    signal: AbortSignal,
+    onEvent: (event: AIChatStreamEvent) => void,
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/ai/chat/stream`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+      body: JSON.stringify({ message, history, provider }),
+      signal,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new ApiError(formatApiError(body?.detail), response.status)
+    }
+    if (!response.body) throw new ApiError("Streaming is not supported by this browser.", 0)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() || ""
+      for (const line of lines) {
+        if (!line.trim()) continue
+        onEvent(JSON.parse(line) as AIChatStreamEvent)
+      }
+      if (done) break
+    }
+    if (buffer.trim()) onEvent(JSON.parse(buffer) as AIChatStreamEvent)
+  },
 };
