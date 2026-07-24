@@ -577,6 +577,13 @@ body {
 .btn-icon.btn-delete-icon { color: #dc2626 !important; }
 .btn-icon.btn-delete-icon:hover { background: #fee2e2 !important; color: #b91c1c !important; }
 .table-action-icons { display: inline-flex; align-items: center; justify-content: center; gap: 2px; white-space: nowrap; }
+.table-action-icons .btn:disabled,
+.table-action-icons .btn:disabled:hover {
+  background: transparent !important;
+  color: #94a3b8 !important;
+  cursor: not-allowed;
+  opacity: .5;
+}
 
 /* Divider */
 .divider {

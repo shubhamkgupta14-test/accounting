@@ -17,7 +17,7 @@ def test_session_key_lifecycle_and_logout(client, login, monkeypatch):
 
     monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
     ai_session_keys.clear()
-    login()
+    login("admin")
 
     initial = client.get("/api/ai/session-key/status")
     assert initial.status_code == 200
@@ -31,13 +31,13 @@ def test_session_key_lifecycle_and_logout(client, login, monkeypatch):
     assert client.get("/api/ai/session-key/status").json()["configured"] is True
 
     assert client.post("/api/auth/logout").status_code == 204
-    login()
+    login("admin")
     assert client.get("/api/ai/session-key/status").json()["configured"] is False
 
 
 def test_chat_requires_a_configured_key(client, login):
     ai_session_keys.clear()
-    login()
+    login("admin")
     response = client.post("/api/ai/chat", json={"message": "What is depreciation?"})
     assert response.status_code == 428
 
@@ -52,7 +52,7 @@ def test_chat_refuses_non_accounting_without_calling_provider(client, login, mon
     monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
     monkeypatch.setattr("app.routes.multi_ai.request_provider_reply", must_not_call)
     ai_session_keys.clear()
-    login()
+    login("admin")
     assert client.post("/api/ai/session-key", json={"provider": "grok", "model": "grok-4.3", "api_key": "xai-session-test-key"}).status_code == 200
 
     response = client.post("/api/ai/chat", json={"message": "Write a MongoDB query for the application"})
@@ -83,7 +83,7 @@ def test_chat_sends_only_bounded_history_and_five_suggestions(client, login, mon
     monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
     monkeypatch.setattr("app.routes.multi_ai.request_provider_reply", reply)
     ai_session_keys.clear()
-    login()
+    login("admin")
     client.post("/api/ai/session-key", json={"provider": "grok", "model": "grok-4.3", "api_key": "xai-session-test-key"})
     history = [
         {"role": "user" if number % 2 == 0 else "assistant", "content": f"Accounting message {number}"}
@@ -107,7 +107,7 @@ def test_multiple_providers_can_be_configured_and_selected(client, login, monkey
 
     monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
     ai_session_keys.clear()
-    login()
+    login("admin")
     client.post("/api/ai/session-key", json={"provider": "grok", "model": "grok-4.3", "api_key": "xai-session-test-key"})
     result = client.post("/api/ai/session-key", json={"provider": "groq", "model": "openai/gpt-oss-20b", "api_key": "gsk-session-test-key"})
     assert result.status_code == 200
@@ -136,7 +136,7 @@ def test_stream_chat_emits_answer_deltas_and_supports_provider_override(client, 
     monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
     monkeypatch.setattr("app.routes.multi_ai.stream_provider_reply", stream)
     ai_session_keys.clear()
-    login()
+    login("admin")
     client.post("/api/ai/session-key", json={"provider": "grok", "model": "grok-4.3", "api_key": "xai-session-test-key"})
     client.post("/api/ai/session-key", json={"provider": "groq", "model": "openai/gpt-oss-20b", "api_key": "gsk-session-test-key"})
 
@@ -165,7 +165,7 @@ def test_stream_chat_returns_clear_rate_limit_event(client, login, monkeypatch):
     monkeypatch.setattr("app.routes.multi_ai.validate_provider_key", validate)
     monkeypatch.setattr("app.routes.multi_ai.stream_provider_reply", stream)
     ai_session_keys.clear()
-    login()
+    login("admin")
     client.post("/api/ai/session-key", json={"provider": "groq", "model": "openai/gpt-oss-20b", "api_key": "gsk-session-test-key"})
 
     response = client.post("/api/ai/chat/stream", json={"message": "Explain depreciation", "history": []})
@@ -174,6 +174,19 @@ def test_stream_chat_returns_clear_rate_limit_event(client, login, monkeypatch):
         "type": "error", "provider": "groq", "code": "rate_limit",
         "message": "Groq rate limit reached. Retry later.", "retryable": True,
     }
+
+
+def test_read_only_user_cannot_access_ai(client, login):
+    login("user")
+    assert client.get("/api/ai/session-key/status").status_code == 403
+    assert client.post(
+        "/api/ai/session-key",
+        json={"provider": "grok", "model": "grok-4.3", "api_key": "xai-test-key"},
+    ).status_code == 403
+    assert client.post(
+        "/api/ai/chat",
+        json={"message": "What is depreciation?"},
+    ).status_code == 403
 
 
 def test_scope_gate_allows_accounting_follow_up_and_blocks_prompt_injection():

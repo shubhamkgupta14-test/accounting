@@ -21,11 +21,15 @@ from app.ai_service import (
 )
 from app.core.config import settings
 from app.core.multi_ai_sessions import ai_session_keys, request_session_id
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_roles
 
 
 AIProvider = Literal["grok", "groq", "gemini"]
-router = APIRouter(prefix="/ai", tags=["ai"])
+router = APIRouter(
+    prefix="/ai",
+    tags=["ai"],
+    dependencies=[Depends(require_roles("superadmin", "admin"))],
+)
 
 
 class APIKeyRequest(BaseModel):

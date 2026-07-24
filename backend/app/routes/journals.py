@@ -14,7 +14,7 @@ from pymongo import ReturnDocument
 
 from app.core.database import get_database
 from app.core.config import settings
-from app.dependencies import get_current_user, require_roles
+from app.dependencies import get_current_user, require_owner_or_superadmin, require_roles
 from app.schemas import AccountCreate, JournalEntryCreate
 from app.utils import object_id, serialize_doc, serialize_many
 from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
@@ -601,7 +601,8 @@ async def import_journal_entries_excel(
         await db.accounts.insert_many([{
             "code": str(item["code"]).strip(), "name": str(item["name"]).strip(),
             "type": item["type"], "group": str(item["group"]).strip(),
-            "opening_balance": 0.0, "is_active": True, "created_at": now,
+            "opening_balance": 0.0, "is_active": True,
+            "created_by": current_user["id"], "created_at": now,
         } for item in definitions])
     documents = []
     for payload in payloads:
@@ -768,6 +769,7 @@ async def update_journal_entry(
     existing = await db.journal_entries.find_one({"_id": entry_object_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Journal entry not found")
+    require_owner_or_superadmin(current_user, existing, "journal entries")
     duplicate = await db.journal_entries.find_one({
         "voucher_no": payload.voucher_no,
         "_id": {"$ne": entry_object_id},
@@ -797,19 +799,29 @@ async def update_journal_entry(
 @router.delete("/{entry_id}", status_code=204)
 async def delete_journal_entry(
     entry_id: str,
-    _: dict = Depends(require_roles("superadmin", "admin")),
+    current_user: dict = Depends(require_roles("superadmin", "admin")),
 ):
     db = get_database()
     entry_object_id = object_id(entry_id, "Journal entry")
+    existing = await db.journal_entries.find_one({"_id": entry_object_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    require_owner_or_superadmin(current_user, existing, "journal entries")
     result = await db.journal_entries.delete_one({"_id": entry_object_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Journal entry not found")
 
 
 @router.patch("/{entry_id}/post")
-async def post_journal_entry(entry_id: str, _: dict = Depends(require_roles("superadmin", "admin"))):
-    result = await get_database().journal_entries.find_one_and_update(
-        {"_id": object_id(entry_id, "Journal entry"), "status": "Draft"}, {"$set": {"status": "Posted", "posted_at": datetime.now(timezone.utc)}}, return_document=ReturnDocument.AFTER
+async def post_journal_entry(entry_id: str, current_user: dict = Depends(require_roles("superadmin", "admin"))):
+    db = get_database()
+    entry_object_id = object_id(entry_id, "Journal entry")
+    existing = await db.journal_entries.find_one({"_id": entry_object_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    require_owner_or_superadmin(current_user, existing, "journal entries")
+    result = await db.journal_entries.find_one_and_update(
+        {"_id": entry_object_id, "status": "Draft"}, {"$set": {"status": "Posted", "posted_by": current_user["id"], "posted_at": datetime.now(timezone.utc)}}, return_document=ReturnDocument.AFTER
     )
     if not result:
         raise HTTPException(status_code=404, detail="Journal entry not found")

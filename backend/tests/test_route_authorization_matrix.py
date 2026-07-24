@@ -71,7 +71,6 @@ def test_read_only_user_cannot_import_journals(client, login):
 
 
 @pytest.mark.parametrize(("method", "path", "kwargs"), [
-    ("delete", f"/api/accounts/{OBJECT_ID}", {}),
     ("get", "/api/auth/users", {}),
     ("get", "/api/auth/users/page", {}),
     ("post", "/api/auth/users", {"json": {

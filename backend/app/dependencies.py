@@ -76,3 +76,14 @@ def require_roles(*roles: str):
         return current_user
 
     return checker
+
+
+def require_owner_or_superadmin(current_user: dict, record: dict, resource: str) -> None:
+    """Allow superadmins to manage every record and admins to manage only their own."""
+    if current_user["role"] == "superadmin":
+        return
+    if str(record.get("created_by", "")) != str(current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Admins can only update or delete {resource} they created",
+        )
