@@ -23,7 +23,7 @@ const typeColors: Record<string, string> = {
 }
 
 const types: VoucherType[] = ['Payment', 'Receipt', 'Contra', 'Sales', 'Purchase', 'Journal']
-const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { voucher: any; onClose: () => void; onApprove: () => void; canWrite: boolean; formatMoney: (value: number) => string }) => (
+const VoucherModal = ({ voucher, onClose, onApprove, canApprove, formatMoney }: { voucher: any; onClose: () => void; onApprove: () => void; canApprove: boolean; formatMoney: (value: number) => string }) => (
   <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
     <div className="card" style={{ width: 520, padding: '28px 32px', position: 'relative' }}>
       <button style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4 }} onClick={onClose}>x</button>
@@ -52,7 +52,7 @@ const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { 
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button className="btn btn-secondary" onClick={onClose}>Close</button>
-        {voucher.status === 'Pending' && canWrite && <button className="btn btn-secondary" onClick={onApprove}>Approve</button>}
+        {voucher.status === 'Pending' && canApprove && <button className="btn btn-secondary" onClick={onApprove}>Approve</button>}
         <button className="btn btn-primary">Print Voucher</button>
       </div>
     </div>
@@ -62,7 +62,7 @@ const VoucherModal = ({ voucher, onClose, onApprove, canWrite, formatMoney }: { 
 export default function Vouchers() {
   const { createVoucher, approveVoucher } = useLedgerData()
   const { formatMoney, formatDate, currencySymbol } = useAppSettings()
-  const { canWrite } = useAuth()
+  const { canWrite, canManageRecord } = useAuth()
   const { showToast } = useToast()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
@@ -287,8 +287,20 @@ export default function Vouchers() {
                     <div className="table-action-icons">
                     <button className="btn btn-ghost btn-icon" title="View voucher" aria-label="View voucher" onClick={() => setSelected(v)}><Eye size={14} /></button>
                     {canWrite && <>
-                      <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit voucher" aria-label="Edit voucher" onClick={() => openEditForm(v)}><Pencil size={14} /></button>
-                      <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete voucher" aria-label="Delete voucher" onClick={() => setDeleteTarget(v)}><Trash2 size={14} /></button>
+                      <button
+                        className="btn btn-ghost btn-icon btn-icon-primary"
+                        title={canManageRecord(v.created_by) ? 'Edit voucher' : 'Only the creator or a superadmin can edit this voucher'}
+                        aria-label="Edit voucher"
+                        disabled={!canManageRecord(v.created_by)}
+                        onClick={() => openEditForm(v)}
+                      ><Pencil size={14} /></button>
+                      <button
+                        className="btn btn-ghost btn-icon btn-delete-icon"
+                        title={canManageRecord(v.created_by) ? 'Delete voucher' : 'Only the creator or a superadmin can delete this voucher'}
+                        aria-label="Delete voucher"
+                        disabled={!canManageRecord(v.created_by)}
+                        onClick={() => setDeleteTarget(v)}
+                      ><Trash2 size={14} /></button>
                     </>}
                     </div>
                   </td>
@@ -302,7 +314,7 @@ export default function Vouchers() {
         <div className="total-amount" style={{ padding: '0 20px 12px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>Filtered total: {formatMoney(filtered.reduce((s, v) => s + v.amount, 0))}</div>
       </div>
 
-      {selected && <VoucherModal voucher={selected} canWrite={canWrite} formatMoney={formatMoney} onClose={() => setSelected(null)} onApprove={async () => {
+      {selected && <VoucherModal voucher={selected} canApprove={canManageRecord(selected.created_by)} formatMoney={formatMoney} onClose={() => setSelected(null)} onApprove={async () => {
         try {
           await approveVoucher(selected.backendId || selected.id)
           setSelected(null)

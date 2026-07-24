@@ -37,7 +37,7 @@ const nextAccountCode = (count: number) => `AC${String(count + 1).padStart(3, '0
 export default function ChartOfAccounts() {
   const { accounts, createAccount, updateAccount, deleteAccount } = useLedgerData()
   const { currencySymbol } = useAppSettings()
-  const { canWrite, canManageUsers } = useAuth()
+  const { canWrite, canManageRecord } = useAuth()
   const { showToast } = useToast()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('All')
@@ -318,11 +318,11 @@ export default function ChartOfAccounts() {
                 <th>Type</th>
                 <th>Group</th>
                 <th className="num">Balance ({currencySymbol})</th>
-                {(canWrite || canManageUsers) && <th style={{ textAlign: 'center' }}>Actions</th>}
+                {canWrite && <th style={{ textAlign: 'center' }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite || canManageUsers ? 7 : 6} />}
+              {loadingRows && <TableSkeletonRows rows={pageSize} columns={canWrite ? 7 : 6} />}
               {!loadingRows && rows.map(a => (
                 <tr key={a.id}>
                   <td style={{ width: 36, minWidth: 36, padding: '8px 4px', textAlign: 'center' }}>
@@ -333,25 +333,33 @@ export default function ChartOfAccounts() {
                   <td><span className={`badge ${typeColors[a.type] || 'badge-slate'}`}>{a.type}</span></td>
                   <td><span className="group-text">{a.group}</span></td>
                   <td className="num" style={{ fontWeight: 600 }}>{formatReportNumber(a.balance || 0)}</td>
-                  {(canWrite || canManageUsers) && (
+                  {canWrite && (
                     <td style={{ textAlign: 'center' }}>
                       <div className="table-action-icons">
-                        {canWrite && (
-                          <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit ledger account" aria-label="Edit ledger account" onClick={() => openEditForm(a)}>
-                            <Edit2 size={14} />
-                          </button>
-                        )}
-                        {canManageUsers && (
-                          <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete ledger account" aria-label="Delete ledger account" onClick={() => setDeleteTarget(a)}>
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                        <button
+                          className="btn btn-ghost btn-icon btn-icon-primary"
+                          title={canManageRecord(a.created_by) ? 'Edit ledger account' : 'Only the creator or a superadmin can edit this ledger account'}
+                          aria-label="Edit ledger account"
+                          disabled={!canManageRecord(a.created_by)}
+                          onClick={() => openEditForm(a)}
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-icon btn-delete-icon"
+                          title={canManageRecord(a.created_by) ? 'Delete ledger account' : 'Only the creator or a superadmin can delete this ledger account'}
+                          aria-label="Delete ledger account"
+                          disabled={!canManageRecord(a.created_by)}
+                          onClick={() => setDeleteTarget(a)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </td>
                   )}
                 </tr>
               ))}
-              {!loadingRows && rows.length === 0 && <EmptyTableRow colSpan={canWrite || canManageUsers ? 7 : 6} />}
+              {!loadingRows && rows.length === 0 && <EmptyTableRow colSpan={canWrite ? 7 : 6} />}
             </tbody>
           </table>
         </div>

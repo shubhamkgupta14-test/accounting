@@ -133,7 +133,7 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
   }, [historyUserId, messages, user?.id])
 
   useEffect(() => {
-    if (!user) {
+    if (!user || user.role === 'user') {
       setConfigured(false)
       setExpiresAt(null)
       setActiveProvider(null)
@@ -160,7 +160,7 @@ export function AIProvider({ children }: { children: React.ReactNode }) {
       })
       .finally(() => { if (active) setChecking(false) })
     return () => { active = false }
-  }, [applyStatus, user?.id])
+  }, [applyStatus, user?.id, user?.role])
 
   const connect = useCallback(async (provider: AIProvider, model: string, apiKey: string) => {
     applyStatus(await api.connectAIKey(provider, model, apiKey))

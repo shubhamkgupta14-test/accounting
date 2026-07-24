@@ -69,7 +69,7 @@ function AppShell() {
   const storedPage = window.localStorage.getItem('accounting.activePage')
   const [selectedPage, setSelectedPage] = useState<PageId>(isPageId(requestedPage) ? requestedPage : isPageId(storedPage) ? storedPage : 'dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { user, loading } = useAuth()
+  const { user, loading, canUseAI } = useAuth()
   const activePage = user?.role !== 'superadmin' && superadminPages.has(selectedPage) ? 'dashboard' : selectedPage
   const navigate = useCallback((page: PageId) => {
     setSelectedPage(page)
@@ -117,12 +117,12 @@ function AppShell() {
   }
   return (
     <DataProvider activePage={activePage}>
-      <AIChatDrawer onOpenSettings={() => {
+      {canUseAI && <AIChatDrawer onOpenSettings={() => {
         const url = new URL(window.location.href)
         url.searchParams.set('settingsTab', 'ai')
         window.history.replaceState({}, '', url)
         navigate('settings')
-      }} />
+      }} />}
       <LedgerQuickView />
       <Sidebar activePage={activePage} onNavigate={navigate} mobileOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
       <Header activePage={activePage} onNavigate={navigate} onOpenMenu={() => setMobileMenuOpen(true)} />

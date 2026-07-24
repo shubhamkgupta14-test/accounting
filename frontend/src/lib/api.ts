@@ -35,6 +35,7 @@ export interface Account {
   opening_balance: number;
   balance?: number;
   is_active: boolean;
+  created_by?: string;
 }
 
 export interface JournalLine {
@@ -53,6 +54,7 @@ export interface JournalEntry {
   narration: string;
   entries: JournalLine[];
   status: "Draft" | "Posted";
+  created_by?: string;
 }
 
 export interface Voucher {
@@ -67,6 +69,7 @@ export interface Voucher {
   mode: string;
   status: "Pending" | "Approved" | "Rejected";
   narration: string;
+  created_by?: string;
 }
 
 export interface BookTransaction {

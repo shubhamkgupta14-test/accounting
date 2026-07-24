@@ -6,7 +6,7 @@ from typing import Literal
 from pymongo import ReturnDocument
 
 from app.core.database import get_database
-from app.dependencies import get_current_user, require_roles
+from app.dependencies import get_current_user, require_owner_or_superadmin, require_roles
 from app.schemas import VoucherCreate, VoucherUpdate
 from app.utils import object_id, serialize_doc, serialize_many
 from app.pagination import PageParams, SortOrder, page_response, safe_search, sort_direction
@@ -69,8 +69,10 @@ async def update_voucher(
 ):
     db = get_database()
     voucher_object_id = object_id(voucher_id, "Voucher")
-    if not await db.vouchers.find_one({"_id": voucher_object_id}):
+    existing = await db.vouchers.find_one({"_id": voucher_object_id})
+    if not existing:
         raise HTTPException(status_code=404, detail="Voucher not found")
+    require_owner_or_superadmin(current_user, existing, "vouchers")
     duplicate = await db.vouchers.find_one({
         "voucher_no": payload.voucher_no,
         "_id": {"$ne": voucher_object_id},
@@ -93,19 +95,29 @@ async def update_voucher(
 @router.delete("/{voucher_id}", status_code=204)
 async def delete_voucher(
     voucher_id: str,
-    _: dict = Depends(require_roles("superadmin", "admin")),
+    current_user: dict = Depends(require_roles("superadmin", "admin")),
 ):
-    result = await get_database().vouchers.delete_one(
-        {"_id": object_id(voucher_id, "Voucher")}
-    )
+    db = get_database()
+    voucher_object_id = object_id(voucher_id, "Voucher")
+    existing = await db.vouchers.find_one({"_id": voucher_object_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Voucher not found")
+    require_owner_or_superadmin(current_user, existing, "vouchers")
+    result = await db.vouchers.delete_one({"_id": voucher_object_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Voucher not found")
 
 
 @router.patch("/{voucher_id}/approve")
 async def approve_voucher(voucher_id: str, current_user=Depends(require_roles("superadmin", "admin"))):
-    result = await get_database().vouchers.find_one_and_update(
-        {"_id": object_id(voucher_id, "Voucher"), "status": "Pending"},
+    db = get_database()
+    voucher_object_id = object_id(voucher_id, "Voucher")
+    existing = await db.vouchers.find_one({"_id": voucher_object_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Voucher not found")
+    require_owner_or_superadmin(current_user, existing, "vouchers")
+    result = await db.vouchers.find_one_and_update(
+        {"_id": voucher_object_id, "status": "Pending"},
         {"$set": {"status": "Approved", "approved_by": current_user["id"], "approved_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )

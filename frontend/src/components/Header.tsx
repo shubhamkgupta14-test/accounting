@@ -9,7 +9,7 @@ interface Props { activePage: PageId; onNavigate: (page: PageId) => void; onOpen
 
 export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
   const pageContent = usePageContent(activePage)
-  const { user } = useAuth()
+  const { user, canUseAI } = useAuth()
   const { settings } = useAppSettings()
   const { configured: aiConfigured, openChat } = useAI()
   const initials = `${user?.first_name?.[0] || 'F'}${user?.last_name?.[0] || 'L'}`.toUpperCase()
@@ -33,7 +33,7 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
 
       {/* Right actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <button
+        {canUseAI && <button
           className={`btn btn-ghost btn-icon ai-header-button${aiConfigured ? ' configured' : ''}`}
           style={{ position: 'relative' }}
           title={aiConfigured ? 'Open Accounting AI' : 'Open Accounting AI setup guide'}
@@ -42,7 +42,7 @@ export default function Header({ activePage, onNavigate, onOpenMenu }: Props) {
         >
           <Bot size={17} />
           <span className={`ai-status-dot${aiConfigured ? ' connected' : ''}`} />
-        </button>
+        </button>}
         <button className="btn btn-ghost btn-icon" style={{ position: 'relative' }} title="Notifications" onClick={() => onNavigate('notifications')}>
           <Bell size={16} />
           <span style={{

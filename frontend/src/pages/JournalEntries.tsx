@@ -34,7 +34,7 @@ const emptyForm = (count: number): JournalForm => ({
 export default function JournalEntries() {
   const { accounts, refresh, createAccount } = useLedgerData()
   const { formatDate, currencySymbol } = useAppSettings()
-  const { canWrite } = useAuth()
+  const { canWrite, canManageRecord } = useAuth()
   const { showToast } = useToast()
   const [showForm, setShowForm] = useState(false)
   const [addNext, setAddNext] = useState(false)
@@ -861,6 +861,7 @@ export default function JournalEntries() {
                 const dr = e.entries.reduce((s, r) => s + r.dr, 0)
                 const cr = e.entries.reduce((s, r) => s + r.cr, 0)
                 const isOpen = expanded === e.id
+                const canModify = canManageRecord(e.created_by)
                 return (
                   <Fragment key={e.id}>
                     <tr key={e.id} style={{ cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : e.id)}>
@@ -879,8 +880,20 @@ export default function JournalEntries() {
                       {canWrite && <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={event => event.stopPropagation()}>
                         <div className="table-action-icons">
                         <button className="btn btn-ghost btn-icon btn-icon-primary" title="Duplicate as a new journal entry" aria-label={`Duplicate journal entry ${e.voucherNo}`} onClick={() => duplicateEntry(e)}><Copy size={14} /></button>
-                        <button className="btn btn-ghost btn-icon btn-icon-primary" title="Edit journal entry" aria-label="Edit journal entry" onClick={() => openEditForm(e)}><Pencil size={14} /></button>
-                        <button className="btn btn-ghost btn-icon btn-delete-icon" title="Delete journal entry" aria-label="Delete journal entry" onClick={() => setDeleteTarget(e)}><Trash2 size={14} /></button>
+                        <button
+                          className="btn btn-ghost btn-icon btn-icon-primary"
+                          title={canModify ? 'Edit journal entry' : 'Only the creator or a superadmin can edit this journal entry'}
+                          aria-label="Edit journal entry"
+                          disabled={!canModify}
+                          onClick={() => openEditForm(e)}
+                        ><Pencil size={14} /></button>
+                        <button
+                          className="btn btn-ghost btn-icon btn-delete-icon"
+                          title={canModify ? 'Delete journal entry' : 'Only the creator or a superadmin can delete this journal entry'}
+                          aria-label="Delete journal entry"
+                          disabled={!canModify}
+                          onClick={() => setDeleteTarget(e)}
+                        ><Trash2 size={14} /></button>
                         </div>
                       </td>}
                     </tr>

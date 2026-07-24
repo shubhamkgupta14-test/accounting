@@ -18,7 +18,7 @@ const tabs: { id: Tab; label: string; icon: React.ReactNode; roles: Array<'super
   { id: 'company', label: 'Company', icon: <Building2 size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'profile', label: 'Profile', icon: <User size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'security', label: 'Security', icon: <Lock size={14} />, roles: ['superadmin', 'admin', 'user'] },
-  { id: 'ai', label: 'Accounting AI', icon: <Bot size={14} />, roles: ['superadmin', 'admin', 'user'] },
+  { id: 'ai', label: 'Accounting AI', icon: <Bot size={14} />, roles: ['superadmin', 'admin'] },
   { id: 'notifications', label: 'Notifications', icon: <Bell size={14} />, roles: ['superadmin', 'admin', 'user'] },
   { id: 'data', label: 'Data & Backup', icon: <Database size={14} />, roles: ['superadmin'] },
   { id: 'fiscal', label: 'Fiscal Year', icon: <Globe size={14} />, roles: ['superadmin', 'admin', 'user'] },
@@ -386,7 +386,7 @@ export default function Settings({ partnersOnly = false }: { partnersOnly?: bool
             </div>
           )}
 
-          {activeTab === 'ai' && (
+          {activeTab === 'ai' && role !== 'user' && (
             <div className="card" style={{ padding: '24px 28px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
                 <div>
