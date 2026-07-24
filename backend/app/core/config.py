@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     api_requests_per_minute: int = 240
     report_requests_per_minute: int = 60
     import_requests_per_minute: int = 12
+    ai_requests_per_minute: int = 30
+    ai_key_idle_minutes: int = 30
+    ai_max_history_messages: int = 20
+    ai_default_history_messages: int = 12
+    ai_max_message_chars: int = 2_000
+    ai_max_context_chars: int = 12_000
+    xai_model: str = "grok-4.3"
+    xai_base_url: str = "https://api.x.ai/v1"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    xai_timeout_seconds: float = 25.0
     max_comparative_periods: int = 10
     max_report_rows: int = 20_000
 
